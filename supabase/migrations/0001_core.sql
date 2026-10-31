@@ -385,7 +385,7 @@ grant execute on function public.create_org(text, jsonb), public.accept_invite(t
 revoke all on function private.ledger_append(uuid, text, text, uuid, jsonb), private.ledger_hash(uuid, bigint, text, text, uuid, text, text, timestamptz),
   private.ledger_forbid_change(), private.ledger_no_truncate(), private.ledger_row(), private.risk_before_insert(), private.touch(), private.answer_stamp() from public;
 
--- Finding 16: a trust page is reachable by its slug, the list of tenants is not.
+-- A trust page is reachable by its slug, the list of tenants is not.
 create function public.trust_page(p_slug text) returns table (canonical text, signature text, key_id text)
 language sql stable security definer set search_path = '' as $$
   select a.canonical, a.signature, a.key_id from public.attestations a
