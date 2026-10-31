@@ -145,7 +145,7 @@ export function RiskRegister({ slug, risks, canWrite, canDelete }: { slug: strin
           {canWrite && <button disabled={busy} onClick={() => start(async () => { setError((await addExampleRisks(slug)).error ?? '') })} className="btn btn-ghost mt-4">Load worked examples</button>}
         </Empty>
       ) : (
-        <div id="risk-table" tabIndex={0} role="region" aria-label="Risks" className="card overflow-x-auto">
+        <div id="risk-table" tabIndex={0} role="region" aria-label="Risks" className="card relative overflow-x-auto">
           <table className="w-full min-w-[60rem] text-left text-sm">
             <thead className="text-xs text-faint">
               <tr className="border-b border-line">

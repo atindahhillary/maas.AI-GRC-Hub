@@ -73,8 +73,8 @@ const CSV_COLUMNS: [string, (r: Risk) => string | number | null][] = [
 // Prefixing a quote stops spreadsheets running a cell that starts with a formula character.
 export function csvCell(value: string | number | null): string {
   const s = value === null ? '' : String(value)
-  const safe = typeof value === 'string' && /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
-  return /[",\n\r]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
+  const safe = typeof value === 'string' && /^[\s=+\-@|%]/.test(s) ? `'${s}` : s
+  return /[",;\n\r]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
 }
 
 export const risksToCsv = (rows: Risk[]) =>

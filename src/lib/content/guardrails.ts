@@ -16,16 +16,17 @@ export const GUARDRAILS: Guardrail[] = [
       code: `; Phase 1, weeks 1 to 4: monitor only
 _dmarc.{domain}. 3600 IN TXT "v=DMARC1; p=none; rua=mailto:dmarc@{domain}; fo=1"
 
-; Phase 2, weeks 5 to 8: quarantine a share of failing mail
-_dmarc.{domain}. 3600 IN TXT "v=DMARC1; p=quarantine; pct=25; rua=mailto:dmarc@{domain}; fo=1"
+; Phase 2, weeks 5 to 8: test quarantine. RFC 9989 replaced pct with t=y.
+; Receivers on the older standard ignore t and may quarantine failing mail now.
+_dmarc.{domain}. 3600 IN TXT "v=DMARC1; p=quarantine; t=y; rua=mailto:dmarc@{domain}; fo=1"
 
 ; Phase 3, weeks 9 to 12: quarantine all failing mail
-_dmarc.{domain}. 3600 IN TXT "v=DMARC1; p=quarantine; pct=100; rua=mailto:dmarc@{domain}; fo=1"
+_dmarc.{domain}. 3600 IN TXT "v=DMARC1; p=quarantine; rua=mailto:dmarc@{domain}; fo=1"
 
 ; Phase 4, once reports stay clean: reject
 _dmarc.{domain}. 3600 IN TXT "v=DMARC1; p=reject; rua=mailto:dmarc@{domain}; fo=1"`,
     },
-    verify: 'Run dig +short TXT _dmarc.{domain} and confirm exactly one record at the current phase. Reports should arrive at the mailbox within 48 hours, and a rescan of dns.dmarc should pass once p is quarantine or reject.',
+    verify: 'Run dig +short TXT _dmarc.{domain} and confirm exactly one record at the current phase. Reports should arrive at the mailbox within 48 hours, and a rescan of dns.dmarc should pass once p is quarantine or reject. Mail is only enforced once t=y is removed.',
     triggers: ['dns.dmarc', 'NET-01'],
   },
   {

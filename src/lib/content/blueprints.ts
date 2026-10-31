@@ -21,7 +21,7 @@ export const BLUEPRINT: BlueprintLayer[] = [
       },
       substantial: {
         approach: 'Risk-based access, automated joiner and leaver processes, phishing-resistant keys for admins and privileged access controls.',
-        examples: ['Microsoft Entra ID P2', 'Okta Identity Governance', 'YubiKey', 'CyberArk', 'BeyondTrust'],
+        examples: ['Microsoft Entra ID P2', 'Okta Identity Governance', 'YubiKey', 'Palo Alto Networks Idira (formerly CyberArk)', 'BeyondTrust'],
         monthlyCostUsd: '15 to 40 per user, estimate',
       },
     },
@@ -64,7 +64,7 @@ export const BLUEPRINT: BlueprintLayer[] = [
       },
       moderate: {
         approach: 'Managed backup for endpoints, servers and SaaS data such as Microsoft 365 or Google Workspace.',
-        examples: ['Acronis Cyber Protect', 'Veeam Data Cloud', 'Afi Backup', 'Backblaze Business Backup'],
+        examples: ['Acronis Cyber Protect', 'Veeam Data Cloud', 'Afi Backup', 'Backblaze Business Computer Backup'],
         monthlyCostUsd: '3 to 8 per user, estimate',
       },
       substantial: {
@@ -103,11 +103,11 @@ export const BLUEPRINT: BlueprintLayer[] = [
     title: 'Patching and asset inventory',
     outcome: 'You know what you own, and critical updates are applied within agreed times.',
     phase: 60,
-    controls: ['GOV-04', 'END-02', 'END-05'],
+    controls: ['GOV-04', 'GOV-07', 'END-02', 'END-05'],
     options: {
       minimal: {
         approach: 'A simple asset register, automatic updates turned on and a monthly vulnerability scan.',
-        examples: ['Snipe-IT', 'GLPI', 'Windows Update for Business', 'unattended-upgrades', 'Greenbone Community Edition'],
+        examples: ['Snipe-IT', 'GLPI', 'Windows Update client policies', 'unattended-upgrades', 'Greenbone Community Edition'],
         monthlyCostUsd: '0 to 50 in total, estimate',
       },
       moderate: {
@@ -142,7 +142,7 @@ export const BLUEPRINT: BlueprintLayer[] = [
       },
       substantial: {
         approach: 'Enterprise AI plans with single sign-on, audit logs, data loss prevention and managed content and injection filtering.',
-        examples: ['ChatGPT Enterprise', 'Claude Enterprise', 'Amazon Bedrock Guardrails', 'Azure AI Content Safety', 'Google Cloud Model Armor', 'Microsoft Purview'],
+        examples: ['ChatGPT Enterprise', 'Claude Enterprise', 'Amazon Bedrock Guardrails', 'Content Safety in Foundry Control Plane', 'Google Cloud Model Armor', 'Microsoft Purview'],
         monthlyCostUsd: 'Quote based, often 30 to 60 per user plus usage, estimate',
       },
     },
@@ -166,7 +166,7 @@ export const BLUEPRINT: BlueprintLayer[] = [
       },
       substantial: {
         approach: 'Role-based training for finance, admins, developers and leaders, with measured behaviour change and executive exercises.',
-        examples: ['SANS Security Awareness', 'Proofpoint Security Awareness', 'KnowBe4', 'Hoxhunt'],
+        examples: ['SANS Security Awareness', 'Proofpoint ZenGuide', 'KnowBe4', 'Hoxhunt'],
         monthlyCostUsd: '3 to 8 per user, estimate',
       },
     },
@@ -176,16 +176,16 @@ export const BLUEPRINT: BlueprintLayer[] = [
     title: 'Network and web protection',
     outcome: 'Websites and remote access are protected, and only what must be public is exposed.',
     phase: 90,
-    controls: ['NET-03', 'NET-04', 'NET-05', 'DAT-04'],
+    controls: ['NET-03', 'NET-04', 'NET-05', 'NET-07', 'DAT-04'],
     options: {
       minimal: {
-        approach: 'Free CDN and basic firewall in front of websites, free certificates, and private access to admin tools.',
-        examples: ['Cloudflare Free', "Let's Encrypt", 'WireGuard', 'Tailscale', 'OPNsense'],
+        approach: 'Free CDN and basic firewall in front of websites, free certificates, filtering DNS, and private access to admin tools.',
+        examples: ['Cloudflare Free', "Let's Encrypt", 'Quad9', 'WireGuard', 'Tailscale', 'OPNsense'],
         monthlyCostUsd: '0 to 20 in total, estimate',
       },
       moderate: {
-        approach: 'Managed web application firewall, zero trust access in place of VPN and a business firewall at the office.',
-        examples: ['Cloudflare Pro', 'Cloudflare Zero Trust', 'AWS WAF', 'Tailscale', 'Fortinet FortiGate'],
+        approach: 'Managed web application firewall, zero trust access in place of VPN, managed DNS filtering and a business firewall at the office.',
+        examples: ['Cloudflare Pro', 'Cloudflare One', 'DNSFilter', 'AWS WAF', 'Tailscale', 'Fortinet FortiGate'],
         monthlyCostUsd: '25 to 300 per site, plus 0 to 8 per user for access, estimate',
       },
       substantial: {
@@ -262,7 +262,7 @@ export const BLUEPRINT: BlueprintLayer[] = [
       },
       substantial: {
         approach: 'A 24 hour managed detection and response service covering endpoints, identity and cloud.',
-        examples: ['Arctic Wolf', 'Sophos MDR', 'Expel', 'Splunk Enterprise Security'],
+        examples: ['Arctic Wolf', 'Sophos MDR', 'Expel'],
         monthlyCostUsd: 'Quote based, often 10 to 40 per user, estimate',
       },
     },

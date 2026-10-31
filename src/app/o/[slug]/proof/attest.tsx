@@ -17,7 +17,7 @@ export function IssueButton({ slug }: { slug: string }) {
   )
 }
 
-interface Row { id: string; payload: { provenScore: number; claimedScore: number }; published: boolean; issued_at: string; expires_at: string; key_id: string }
+interface Row { id: string; payload: { provenScore: number; claimedScore: number }; canonical: string; signature: string; published: boolean; issued_at: string; expires_at: string; key_id: string }
 
 export function AttestationRow({ slug, a, canAdmin }: { slug: string; a: Row; canAdmin: boolean }) {
   const [pending, start] = useTransition()

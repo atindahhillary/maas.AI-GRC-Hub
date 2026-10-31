@@ -222,7 +222,7 @@ describe('tenant isolation', () => {
     })
 
     it('someone in no org reads nothing at all', async () => {
-      expect(await count(outsider, t)).toBe(table === 'attestations' ? 1 : 0) // the one published attestation is public by design
+      expect(await count(outsider, t)).toBe(0)
     })
   })
 
@@ -277,9 +277,9 @@ describe('member roles', () => {
     expect((await run(analystA, `update public.risks set description = 'updated' where id = '${RISK_A}'`)).affectedRows).toBe(1)
   })
 
-  it('an analyst can answer and draft a policy', async () => {
+  it('an analyst can answer but cannot write a policy row, the server does', async () => {
     expect((await run(analystA, TABLES.answers.insert(A))).affectedRows).toBe(1)
-    expect((await run(analystA, TABLES.policies.insert(A))).affectedRows).toBe(1)
+    await expect(run(analystA, TABLES.policies.insert(A))).rejects.toThrow(/permission denied/)
   })
 
   it('an analyst cannot delete a risk', async () => {
@@ -388,7 +388,8 @@ describe('facts only the server may write', () => {
     it.each([['admin', adminA], ['owner', ownerA]])('an %s can flip published', async (_n, who) => {
       await scenario(async (s) => {
         expect((await s(who, `update public.attestations set published = true where id = '${UNPUBLISHED_A}'`)).affectedRows).toBe(1)
-        expect((await s(anon, `select id from public.attestations where id = '${UNPUBLISHED_A}'`)).rows).toHaveLength(1)
+        const live = await s(anon, `select public.attestation_live(signature) as live from (select 'sig-unpublished'::text as signature) x`)
+        expect(live.rows).toHaveLength(1)
         expect((await s(who, `update public.attestations set published = false where id = '${UNPUBLISHED_A}'`)).affectedRows).toBe(1)
       })
     })
@@ -404,9 +405,26 @@ describe('facts only the server may write', () => {
 })
 
 describe('anonymous visitors', () => {
-  it('read published attestations and nothing unpublished', async () => {
-    const { rows } = await run(anon, 'select id from public.attestations')
-    expect(rows).toEqual([{ id: PUBLISHED_A }])
+  it('cannot list attestations, so the tenant directory stays private', async () => {
+    await expect(run(anon, 'select id from public.attestations')).rejects.toThrow(/permission denied/)
+  })
+
+  it('reach a published attestation only through its slug', async () => {
+    const hit = await run(superuser, `select slug from public.attestations where id = '${PUBLISHED_A}'`)
+    const { rows } = await run(anon, `select * from public.trust_page('${(hit.rows[0] as { slug: string }).slug}')`)
+    expect(rows).toHaveLength(1)
+    expect(Object.keys(rows[0] as object).sort()).toEqual(['canonical', 'key_id', 'signature'])
+    expect((await run(anon, `select * from public.trust_page('no-such-org')`)).rows).toHaveLength(0)
+  })
+
+  it('unpublishing withdraws an attestation', async () => {
+    await scenario(async (s) => {
+      const { signature } = (await s(superuser, `select signature from public.attestations where id = '${PUBLISHED_A}'`)).rows[0] as { signature: string }
+      const live = async () => ((await s(anon, `select public.attestation_live('${signature}') as l`)).rows[0] as { l: boolean }).l
+      expect(await live()).toBe(true)
+      await s(superuser, `update public.attestations set published = false`)
+      expect(await live()).toBe(false)
+    })
   })
 
   it.each(['orgs', 'members', 'invites', 'risks', 'answers', 'evidence', 'domains', 'scans', 'policies', 'ledger'])('read nothing from %s', async (table) => {
@@ -467,9 +485,13 @@ describe('role escalation', () => {
     await expect(run(adminA, `insert into public.members (org_id, user_id, email, role) values ('${A}', '${USERS.outsider}', 'x', 'viewer')`)).rejects.toThrow(RLS)
   })
 
-  it('an admin cannot invite an owner, on insert or by editing an invite', async () => {
+  it('an admin cannot invite an owner', async () => {
     await expect(run(adminA, `insert into public.invites (org_id, email, role, token_hash) values ('${A}', 'x@test.local', 'owner', 'probe')`)).rejects.toThrow(/check constraint/)
-    await expect(run(adminA, `update public.invites set role = 'owner' where org_id = '${A}'`)).rejects.toThrow(/check constraint/)
+  })
+
+  it('an admin cannot re-arm or edit an invite, or read its token hash', async () => {
+    await expect(run(adminA, `update public.invites set role = 'admin', accepted_at = null where org_id = '${A}'`)).rejects.toThrow(/permission denied/)
+    await expect(run(adminA, `select token_hash from public.invites where org_id = '${A}'`)).rejects.toThrow(/permission denied/)
   })
 
   it('an admin cannot re-point a member row at a user who never accepted an invite', async () => {
@@ -477,11 +499,11 @@ describe('role escalation', () => {
   })
 
   it('a signed-in user cannot call the private ledger writer against another org', async () => {
-    await expect(run(outsider, `select private.ledger_append('${B}', 'risks.delete', 'forged', '{}')`)).rejects.toThrow(NO_PERMISSION)
+    await expect(run(outsider, `select private.ledger_append('${B}', 'risks.delete', 'forged', null, '{}')`)).rejects.toThrow(NO_PERMISSION)
   })
 
   it('an anonymous visitor cannot call the private ledger writer', async () => {
-    await expect(run(anon, `select private.ledger_append('${B}', 'risks.delete', 'forged', '{}')`)).rejects.toThrow(NO_PERMISSION)
+    await expect(run(anon, `select private.ledger_append('${B}', 'risks.delete', 'forged', null, '{}')`)).rejects.toThrow(NO_PERMISSION)
   })
 })
 
@@ -569,8 +591,37 @@ describe('ledger', () => {
     await expect(run(who, `update public.ledger set subject = 'forged' where org_id = '${A}' and seq = 1`)).rejects.toThrow(/append-only/)
   })
 
-  it.each([['the migration owner', superuser], ['the service role', service]])('DELETE raises for %s', async (_n, who) => {
-    await expect(run(who, `delete from public.ledger where org_id = '${A}' and seq = 1`)).rejects.toThrow(/append-only/)
+  it('DELETE raises for the migration owner', async () => {
+    await expect(run(superuser, `delete from public.ledger where org_id = '${A}' and seq = 1`)).rejects.toThrow(/append-only/)
+  })
+
+  it('DELETE is not even granted to the service role', async () => {
+    await expect(run(service, `delete from public.ledger where org_id = '${A}' and seq = 1`)).rejects.toThrow(/permission denied/)
+  })
+
+  it('TRUNCATE raises even for the migration owner', async () => {
+    await expect(run(superuser, 'truncate public.ledger cascade')).rejects.toThrow(/append-only/)
+  })
+
+  it('claim_scan allows three tests per domain, then refuses, and clients cannot call it', async () => {
+    await scenario(async (s) => {
+      const claim = async () => ((await s(service, `select public.claim_scan('${A}', 'limit.example.com', null) as ok`)).rows[0] as { ok: boolean }).ok
+      expect([await claim(), await claim(), await claim(), await claim()]).toEqual([true, true, true, false])
+    })
+    await expect(run(ownerA, `select public.claim_scan('${A}', 'x.example.com', null)`)).rejects.toThrow(/permission denied/)
+  })
+
+  it('answered_by and updated_at are stamped by the database, not the client', async () => {
+    await scenario(async (s) => {
+      await s(analystA, `insert into public.answers (org_id, control_id, status, answered_by, updated_at) values ('${A}', 'GOV-99', 'yes', '${USERS.ownerA}', '2000-01-01')`)
+      const row = (await s(superuser, `select answered_by, updated_at from public.answers where control_id = 'GOV-99'`)).rows[0] as { answered_by: string; updated_at: Date }
+      expect(row.answered_by).toBe(USERS.analystA)
+      expect(new Date(row.updated_at).getFullYear()).toBeGreaterThan(2000)
+    })
+  })
+
+  it('a risk id and creation time cannot be rewritten by a client', async () => {
+    await expect(run(analystA, `update public.risks set seq = 999 where id = '${RISK_A}'`)).rejects.toThrow(/permission denied/)
   })
 
   it('UPDATE and DELETE reach no row for a member', async () => {

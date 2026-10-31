@@ -14,9 +14,10 @@ async function homepage(domain: string): Promise<{ res: Fetched | null; host: st
     if (!res) continue
     if (res.status >= 300 && res.status < 400) {
       const loc = first(res.headers.location) ?? ''
-      const target = loc.startsWith('/') ? null : new URL(loc, `https://${host}`)
-      // Follow one hop, only inside the verified domain.
-      if (target && target.protocol === 'https:' && (target.hostname === domain || target.hostname.endsWith(`.${domain}`))) {
+      // A hostile Location must not abort the scan after its probes were sent.
+      const target = URL.canParse(loc) ? new URL(loc) : null
+      // Follow one hop, only inside the verified domain and only on the default port.
+      if (target && target.protocol === 'https:' && !target.port && (target.hostname === domain || target.hostname.endsWith(`.${domain}`))) {
         const next = await get(target.href).catch(() => null)
         if (next) return { res: next, host: target.hostname }
       }
@@ -58,9 +59,12 @@ export async function runChecks(domain: string): Promise<CheckResult[]> {
   })
   const dm = dmarc.records.find((r) => /^v=DMARC1/i.test(r))
   const policy = dm?.match(/;\s*p=(\w+)/i)?.[1]?.toLowerCase()
+  // t=y is test mode, and a pct below 100 still lets spoofed mail through.
+  const partial = !!dm && (/;\s*t=y/i.test(dm) || Number(dm.match(/;\s*pct=(\d+)/i)?.[1] ?? 100) < 100)
   add({
     id: 'dns.dmarc', group: 'Email', title: 'DMARC enforcement', weight: 3,
-    ...(policy === 'reject' || policy === 'quarantine' ? { outcome: 'pass', detail: `DMARC is enforcing with p=${policy}.` }
+    ...((policy === 'reject' || policy === 'quarantine') && !partial ? { outcome: 'pass', detail: `DMARC is enforcing with p=${policy}.` }
+      : policy === 'reject' || policy === 'quarantine' ? { outcome: 'warn', detail: 'DMARC is in test mode or covers only part of your mail, so spoofed mail can still arrive.' }
       : policy === 'none' ? { outcome: 'warn', detail: 'DMARC is monitoring only (p=none), spoofed mail is still delivered.' }
       : { outcome: 'fail', detail: 'No DMARC record. Attackers can impersonate this domain in phishing mail.' }) as Pick<CheckResult, 'outcome' | 'detail'>,
   })
@@ -99,9 +103,9 @@ export async function runChecks(domain: string): Promise<CheckResult[]> {
 
   // A body match avoids false alarms from sites that answer 200 to every path.
   const envExposed = env?.status === 200 && /^[A-Z][A-Z0-9_]{2,}=/m.test(env.body) && !/<html/i.test(env.body)
-  add({ id: 'exposure.env', group: 'Exposure', title: 'Exposed .env secrets file', weight: 3, outcome: envExposed ? 'fail' : 'pass', detail: envExposed ? 'A .env file is publicly readable. Rotate every secret in it today.' : 'No readable .env file at the web root.' })
+  add({ id: 'exposure.env', group: 'Exposure', title: 'Exposed .env secrets file', weight: 3, outcome: !env ? 'info' : envExposed ? 'fail' : 'pass', detail: !env ? 'The site did not answer, so this could not be checked.' : envExposed ? 'A .env file is publicly readable. Rotate every secret in it today.' : 'No readable .env file at the web root.' })
   const gitExposed = git?.status === 200 && /^ref: refs\//.test(git.body)
-  add({ id: 'exposure.git', group: 'Exposure', title: 'Exposed .git folder', weight: 3, outcome: gitExposed ? 'fail' : 'pass', detail: gitExposed ? 'The .git folder is public, your source code can be downloaded.' : 'No readable .git folder at the web root.' })
+  add({ id: 'exposure.git', group: 'Exposure', title: 'Exposed .git folder', weight: 3, outcome: !git ? 'info' : gitExposed ? 'fail' : 'pass', detail: !git ? 'The site did not answer, so this could not be checked.' : gitExposed ? 'The .git folder is public, your source code can be downloaded.' : 'No readable .git folder at the web root.' })
   const hasSec = sectxt?.status === 200 && /^contact:/im.test(sectxt.body)
   add({ id: 'exposure.securitytxt', group: 'Exposure', title: 'security.txt contact', weight: 1, outcome: hasSec ? 'pass' : 'warn', detail: hasSec ? 'Researchers know how to reach you.' : 'No security.txt, so researchers have no clear way to report a flaw.' })
   return out

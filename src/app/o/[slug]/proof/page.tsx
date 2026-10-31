@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Empty, PageHead, Panel, day, shortHash } from '@/components/ui'
 import { Ring } from '@/components/charts'
 import { atLeast } from '@/lib/access'
+import { verifySignature } from '@/lib/attest'
 import { loadState } from '@/lib/load'
 import { controlById, posture } from '@/lib/posture'
 import { AttestationRow, IssueButton } from './attest'
@@ -15,10 +16,13 @@ export default async function Proof({ params }: { params: Promise<{ slug: string
   const p = posture(states)
   const [{ data: chainRows }, { data: attestations }, { data: ledger }] = await Promise.all([
     supabase.rpc('verify_ledger', { p_org: org.id }),
-    supabase.from('attestations').select('id, payload, published, issued_at, expires_at, key_id').eq('org_id', org.id).order('issued_at', { ascending: false }).limit(10),
+    supabase.from('attestations').select('id, canonical, signature, payload, published, issued_at, expires_at, key_id').eq('org_id', org.id).order('issued_at', { ascending: false }).limit(10),
     supabase.from('ledger').select('seq, event, subject, hash, created_at').eq('org_id', org.id).order('seq', { ascending: false }).limit(25),
   ])
-  const chain = (chainRows as { ok: boolean; entries: number; head: string; broken_at: number | null }[] | null)?.[0]
+  const verdict = (chainRows as { ok: boolean; entries: number; head: string; broken_at: number | null }[] | null)?.[0]
+  // A forged anchor row must fail here, so the newest attestation has to carry a good signature.
+  const newest = attestations?.[0]
+  const chain = verdict && { ...verdict, ok: verdict.ok && (!newest || verifySignature(newest.canonical, newest.signature)) }
   const counts = { tested: 0, evidenced: 0, claimed: 0 }
   states.forEach((s) => { if (s.assurance in counts) counts[s.assurance as keyof typeof counts]++ })
   return (
@@ -41,10 +45,10 @@ export default async function Proof({ params }: { params: Promise<{ slug: string
             <span>{chain?.ok ? `Chain intact, ${chain.entries} entries recomputed just now.` : `Chain broken at entry ${chain?.broken_at}.`}</span>
           </div>
           {chain?.head && <p className="mt-2 text-xs text-faint">Head <code className="font-mono">{shortHash(chain.head)}</code></p>}
-          <p className="mt-2 text-xs text-soft">Each change is hashed with the one before it, so a later edit breaks the chain. Signed attestations pin the head, which guards it even against database administrators.</p>
+          <p className="mt-2 text-xs text-soft">Each change is hashed with the one before it, which catches edits by anyone without full database rights. A database administrator could still rewrite it, unless someone compares it with a signed bundle they kept.</p>
         </Panel>
         <Panel title="Attestation">
-          <p className="text-sm text-soft">Signs your current scores, latest live test, approved policies and ledger head with Ed25519. Valid for 90 days.</p>
+          <p className="text-sm text-soft">Signs your current scores, latest live test, approved policies and ledger head with Ed25519. Needs a live test on a verified domain in the last 90 days. Valid for 90 days.</p>
           {atLeast(role, 'admin') && <div className="mt-3"><IssueButton slug={slug} /></div>}
         </Panel>
       </div>
@@ -58,7 +62,7 @@ export default async function Proof({ params }: { params: Promise<{ slug: string
       )}
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <Panel title={`Evidence vault, ${evidence.length} files`}>
+        <Panel title={`Evidence vault, ${evidence.length} ${evidence.length === 1 ? 'file' : 'files'}`}>
           {evidence.length ? (
             <ul className="divide-y divide-line text-sm">
               {evidence.slice(0, 25).map((e) => (

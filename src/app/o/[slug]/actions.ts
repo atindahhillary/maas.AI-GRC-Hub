@@ -3,8 +3,8 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { requireRole } from '@/lib/access'
-import { signPayload, type AttestationPayload } from '@/lib/attest'
+import { RoleError, requireRole } from '@/lib/access'
+import { signPayload, verifySignature, type AttestationPayload } from '@/lib/attest'
 import { POLICIES } from '@/lib/content/policies'
 import { parseProfile } from '@/lib/profile'
 import { loadState } from '@/lib/load'
@@ -28,9 +28,12 @@ const safe = async (fn: () => Promise<ActionResult | void>): Promise<ActionResul
   } catch (e) {
     // redirect() and notFound() signal through exceptions and must keep travelling.
     if (e && typeof e === 'object' && 'digest' in e) throw e
-    return { error: e instanceof Error ? e.message : 'Something went wrong.' }
+    console.error(e)
+    return { error: e instanceof RoleError ? e.message : GENERIC }
   }
 }
+const GENERIC = 'That did not work. Please try again.'
+const failed = (e: unknown) => (console.error(e), GENERIC)
 
 // Risk register -------------------------------------------------------------------------------
 
@@ -44,7 +47,6 @@ export async function saveRisk(slug: string, id: string | null, _: ActionResult,
     const STRATEGY = ['Mitigate', 'Accept', 'Transfer', 'Avoid']
     const STATUS = ['Open', 'In Progress', 'Closed', 'Accepted']
     const row = {
-      org_id: org.id,
       description,
       consequence: text(form.get('consequence'), 2000),
       category: text(form.get('category'), 40) || 'Security',
@@ -61,8 +63,8 @@ export async function saveRisk(slug: string, id: string | null, _: ActionResult,
     }
     const { error } = id
       ? await supabase.from('risks').update(row).eq('id', id).eq('org_id', org.id)
-      : await supabase.from('risks').insert(row)
-    if (error) return { error: error.message }
+      : await supabase.from('risks').insert({ ...row, org_id: org.id })
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}`, 'layout')
     return { ok: 'Saved' }
   })
@@ -72,7 +74,7 @@ export async function deleteRisk(slug: string, id: string) {
   return safe(async () => {
     const { supabase, org } = await requireRole(slug, 'admin')
     const { error } = await supabase.from('risks').delete().eq('id', id).eq('org_id', org.id)
-    if (error) return { error: error.message }
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}`, 'layout')
   })
 }
@@ -87,7 +89,7 @@ export async function raiseRisk(slug: string, key: string) {
       category: rec.risk.category, likelihood: rec.risk.likelihood, impact: rec.risk.impact,
       strategy: rec.risk.strategy, mitigation: rec.risk.mitigation,
     })
-    if (error && error.code !== '23505') return { error: error.message }
+    if (error && error.code !== '23505') return { error: failed(error) }
     revalidatePath(`/o/${slug}`, 'layout')
   })
 }
@@ -98,10 +100,10 @@ export async function addExampleRisks(slug: string) {
     const today = new Date().toISOString().slice(0, 10)
     const { error } = await supabase.from('risks').insert([
       { org_id: org.id, source_ref: 'example:1', description: 'Unpatched vulnerability on an internet-facing server could be exploited', consequence: 'Delayed patch cycle leaves a route to data theft or ransomware', category: 'Security', likelihood: 4, impact: 5, existing_controls: 'Monthly vulnerability scanning, web application firewall in place', mitigation: 'Accelerate patch SLA to 14 days for critical CVEs', residual_likelihood: 2, residual_impact: 5, status: 'In Progress', last_reviewed: today },
-      { org_id: org.id, source_ref: 'example:2', description: 'Key vendor providing critical software support could go out of business or discontinue service', consequence: 'Vendor dependence with limited alternatives stalls operations', category: 'Third-Party', likelihood: 2, impact: 4, existing_controls: 'Annual vendor financial health check, source code escrow agreement', mitigation: 'Identify and vet a backup vendor, negotiate longer-term support contract', residual_likelihood: 1, residual_impact: 4, last_reviewed: today },
-      { org_id: org.id, source_ref: 'example:3', description: 'Office Wi-Fi router is old and could fail, disrupting work for a few hours', consequence: 'Router is past typical service life, staff lose connectivity', category: 'Operational', likelihood: 3, impact: 1, existing_controls: 'Backup router kept in a closet', mitigation: 'Order a new router as a planned replacement', residual_likelihood: 1, residual_impact: 1, last_reviewed: today },
+      { org_id: org.id, source_ref: 'example:2', description: 'Key vendor providing critical software support could go out of business or discontinue service', consequence: 'Vendor dependence with limited alternatives stalls operations', category: 'Third-Party', likelihood: 2, impact: 4, existing_controls: 'Annual vendor financial health check, source code escrow agreement', mitigation: 'Identify and vet a backup vendor, negotiate longer-term support contract', residual_likelihood: 1, residual_impact: 4, status: 'Open', last_reviewed: today },
+      { org_id: org.id, source_ref: 'example:3', description: 'Office Wi-Fi router is old and could fail, disrupting work for a few hours', consequence: 'Router is past typical service life, staff lose connectivity', category: 'Operational', likelihood: 3, impact: 1, existing_controls: 'Backup router kept in a closet', mitigation: 'Order a new router as a planned replacement', residual_likelihood: 1, residual_impact: 1, status: 'Open', last_reviewed: today },
     ])
-    if (error && error.code !== '23505') return { error: error.message }
+    if (error && error.code !== '23505') return { error: failed(error) }
     revalidatePath(`/o/${slug}`, 'layout')
   })
 }
@@ -115,7 +117,7 @@ export async function answerControl(slug: string, controlId: string, status: str
     const { error } = await supabase.from('answers').upsert({
       org_id: org.id, control_id: controlId, status, note: note.slice(0, 2000), answered_by: user.id, updated_at: new Date().toISOString(),
     })
-    if (error) return { error: error.message }
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}`, 'layout')
   })
 }
@@ -124,15 +126,16 @@ export async function answerControl(slug: string, controlId: string, status: str
 export async function recordEvidence(slug: string, controlId: string, path: string, name: string) {
   return safe(async () => {
     const { supabase, org, user } = await requireRole(slug, 'analyst')
-    if (!path.startsWith(`${org.id}/`) || !/^[A-Z]{2,3}-\d{2}$/.test(controlId)) return { error: 'Invalid upload.' }
+    if (!new RegExp(`^${org.id}/${controlId}/[\\w.-]+$`).test(path) || !/^[A-Z]{2,3}-\d{2}$/.test(controlId)) return { error: 'Invalid upload.' }
     const { data, error } = await supabase.storage.from('evidence').download(path)
     if (error || !data) return { error: 'Upload could not be read back.' }
     const bytes = Buffer.from(await data.arrayBuffer())
+    if (!bytes.length) return { error: 'That file is empty.' }
     const { error: insertError } = await supabaseService().from('evidence').insert({
       org_id: org.id, control_id: controlId, name: name.slice(0, 200), storage_path: path,
       sha256: createHash('sha256').update(bytes).digest('hex'), size_bytes: bytes.length, uploaded_by: user.id,
     })
-    if (insertError) return { error: insertError.message }
+    if (insertError) return { error: failed(insertError) }
     revalidatePath(`/o/${slug}`, 'layout')
   })
 }
@@ -140,7 +143,7 @@ export async function recordEvidence(slug: string, controlId: string, path: stri
 export async function evidenceLink(slug: string, path: string) {
   return safe(async () => {
     const { supabase, org } = await requireRole(slug, 'viewer')
-    if (!path.startsWith(`${org.id}/`)) return { error: 'Not found.' }
+    if (!new RegExp(`^${org.id}/[A-Z]{2,3}-\\d{2}/[\\w.-]+$`).test(path)) return { error: 'Not found.' }
     const { data, error } = await supabase.storage.from('evidence').createSignedUrl(path, 60)
     if (error || !data) return { error: 'Could not open the file.' }
     return { ok: data.signedUrl }
@@ -155,7 +158,7 @@ export async function addDomain(slug: string, _: ActionResult, form: FormData): 
     const domain = text(form.get('domain'), 253).toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '')
     if (!/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)) return { error: 'Enter a domain such as example.org.' }
     const { error } = await supabase.from('domains').insert({ org_id: org.id, domain })
-    if (error) return { error: error.code === '23505' ? 'That domain is already added.' : error.message }
+    if (error) return { error: error.code === '23505' ? 'That domain is already added.' : failed(error) }
     revalidatePath(`/o/${slug}/tests`)
   })
 }
@@ -167,7 +170,8 @@ export async function verifyDomain(slug: string, domainId: string) {
     if (!d) return { error: 'Domain not found.' }
     const found = await dns(`_maas-verify.${d.domain}`, 'TXT')
     if (!found.records.includes(`maas-verify=${d.token}`)) return { error: 'TXT record not found yet. DNS changes can take a few minutes.' }
-    await supabaseService().from('domains').update({ verified_at: new Date().toISOString() }).eq('id', d.id)
+    const { error } = await supabaseService().from('domains').update({ verified_at: new Date().toISOString() }).eq('id', d.id)
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}/tests`)
     return { ok: 'Domain verified' }
   })
@@ -176,17 +180,22 @@ export async function verifyDomain(slug: string, domainId: string) {
 export async function runScan(slug: string, domainId: string) {
   return safe(async () => {
     const { supabase, org, user } = await requireRole(slug, 'analyst')
-    const { data: d } = await supabase.from('domains').select('id, domain, verified_at').eq('id', domainId).eq('org_id', org.id).single()
-    // Ownership proof is what authorizes us to probe a site at all.
+    const { data: d } = await supabase.from('domains').select('id, domain, token, verified_at').eq('id', domainId).eq('org_id', org.id).single()
+    // Ownership proof is what authorizes us to probe a site at all, and it can lapse.
     if (!d?.verified_at) return { error: 'Verify that you own this domain before testing it.' }
-    const since = new Date(Date.now() - 10 * 60 * 1000).toISOString()
-    const { count } = await supabase.from('scans').select('id', { count: 'exact', head: true }).eq('org_id', org.id).gte('created_at', since)
-    if ((count ?? 0) >= 3) return { error: 'Three tests ran in the last 10 minutes. Please wait a little.' }
+    const service = supabaseService()
+    const proof = await dns(`_maas-verify.${d.domain}`, 'TXT')
+    if (!proof.records.includes(`maas-verify=${d.token}`)) {
+      await service.from('domains').update({ verified_at: null }).eq('id', d.id)
+      return { error: 'The ownership record is gone. Verify this domain again.' }
+    }
+    const { data: allowed } = await service.rpc('claim_scan', { p_org: org.id, p_domain: d.domain, p_user: user.id })
+    if (!allowed) return { error: 'Too many tests for this domain. Please wait a little.' }
     const results = await runChecks(d.domain)
-    const { error } = await supabaseService().from('scans').insert({
+    const { error } = await service.from('scans').insert({
       org_id: org.id, domain_id: d.id, domain: d.domain, score: scanScore(results), results, started_by: user.id,
     })
-    if (error) return { error: error.message }
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}`, 'layout')
   })
 }
@@ -195,15 +204,15 @@ export async function runScan(slug: string, domainId: string) {
 
 export async function generatePolicy(slug: string, templateId: string) {
   return safe(async () => {
-    const { supabase, org } = await requireRole(slug, 'analyst')
+    const { supabase, org, user } = await requireRole(slug, 'analyst')
     const tpl = POLICIES.find((p) => p.id === templateId)
     if (!tpl) return { error: 'Unknown policy.' }
     const { data: last } = await supabase.from('policies').select('version').eq('org_id', org.id).eq('template_id', tpl.id)
       .order('version', { ascending: false }).limit(1).maybeSingle()
-    const { error } = await supabase.from('policies').insert({
-      org_id: org.id, template_id: tpl.id, title: tpl.title, version: (last?.version ?? 0) + 1, body: renderPolicy(tpl, org.name, org.profile),
+    const { error } = await supabaseService().from('policies').insert({
+      org_id: org.id, template_id: tpl.id, title: tpl.title, version: (last?.version ?? 0) + 1, body: renderPolicy(tpl, org.name, org.profile), created_by: user.id,
     })
-    if (error) return { error: error.message }
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}/policies`)
   })
 }
@@ -222,7 +231,7 @@ export async function approvePolicy(slug: string, policyId: string) {
       status: 'approved', approved_by: user.id, approved_by_email: user.email, approved_at: new Date().toISOString(),
       content_sha256: createHash('sha256').update(JSON.stringify(p.body)).digest('hex'), review_due: due.toISOString().slice(0, 10),
     }).eq('id', p.id)
-    if (error) return { error: error.message }
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}`, 'layout')
   })
 }
@@ -231,32 +240,37 @@ export async function approvePolicy(slug: string, policyId: string) {
 
 export async function issueAttestation(slug: string) {
   return safe(async () => {
-    const { supabase, org, states, scan } = await loadState(slug, 'admin')
+    const { supabase, org, user, states, scan } = await loadState(slug, 'admin')
     const p = posture(states)
     if (p.answered < p.total) return { error: `Answer every control first, ${p.total - p.answered} are left.` }
+    // The verified domain is the identity an attestation stands on: an org name proves nothing.
+    const { data: owned } = await supabase.from('domains').select('id').eq('org_id', org.id).eq('domain', scan?.domain ?? '').not('verified_at', 'is', null).maybeSingle()
+    if (!scan || !owned || Date.now() - Date.parse(scan.created_at) > 90 * 86400000) return { error: 'Run a live test on a verified domain first.' }
+    const { data: last } = await supabase.from('attestations').select('canonical, signature').eq('org_id', org.id).order('issued_at', { ascending: false }).limit(1).maybeSingle()
+    if (last && !verifySignature(last.canonical, last.signature)) return { error: 'The last attestation failed its signature check, so nothing can be attested.' }
     const { data: chain } = await supabase.rpc('verify_ledger', { p_org: org.id }).single<{ ok: boolean; entries: number; head: string }>()
     if (!chain?.ok) return { error: 'The ledger failed verification, so nothing can be attested.' }
     const { data: approved } = await supabase.from('policies').select('title').eq('org_id', org.id).eq('status', 'approved')
     const issuedAt = new Date()
     const expiresAt = new Date(issuedAt.getTime() + 90 * 86400000)
     const payload: AttestationPayload = {
-      version: 1, org: org.name, slug: org.slug, issuedAt: issuedAt.toISOString(), expiresAt: expiresAt.toISOString(),
+      version: 1, orgId: org.id, org: org.name, slug: org.slug, issuedAt: issuedAt.toISOString(), expiresAt: expiresAt.toISOString(),
       claimedScore: p.claimed, provenScore: p.proven, controlsApplicable: p.total, controlsProven: p.provenCount,
       frameworks: ['ISO/IEC 27001:2022', 'NIST CSF 2.0', 'CIS Controls v8'],
-      scan: scan ? {
+      scan: {
         domain: scan.domain, at: scan.created_at, score: scan.score,
         passed: scan.results.filter((r) => r.outcome === 'pass').length,
         total: scan.results.filter((r) => r.outcome !== 'info').length,
-      } : null,
+      },
       policiesApproved: (approved ?? []).map((a) => a.title).sort(),
       ledger: { entries: Number(chain.entries), head: chain.head },
     }
     const { canonical, signature, keyId } = signPayload(payload)
     const { error } = await supabaseService().from('attestations').insert({
-      org_id: org.id, slug: org.slug, payload, canonical, signature, key_id: keyId,
+      org_id: org.id, slug: org.slug, payload, canonical, signature, key_id: keyId, issued_by: user.id,
       issued_at: payload.issuedAt, expires_at: payload.expiresAt,
     })
-    if (error) return { error: error.message }
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}/proof`)
     return { ok: 'Attestation signed' }
   })
@@ -266,8 +280,7 @@ export async function setPublished(slug: string, id: string, published: boolean)
   return safe(async () => {
     const { supabase, org } = await requireRole(slug, 'admin')
     const { error } = await supabase.from('attestations').update({ published }).eq('id', id).eq('org_id', org.id)
-    if (error) return { error: error.message }
-    await supabase.from('orgs').update({ trust_enabled: published }).eq('id', org.id)
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}/proof`)
   })
 }
@@ -280,7 +293,7 @@ export async function updateProfile(slug: string, _: ActionResult, form: FormDat
     const profile = parseProfile(form)
     if (!profile) return { error: 'Please complete every field.' }
     const { error } = await supabase.from('orgs').update({ name: text(form.get('name'), 120) || org.name, profile }).eq('id', org.id)
-    if (error) return { error: error.message }
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}`, 'layout')
     return { ok: 'Profile saved. Controls, guardrails and blueprint have been re-tailored.' }
   })
@@ -296,7 +309,7 @@ export async function createInvite(slug: string, _: ActionResult, form: FormData
     const { error } = await supabase.from('invites').insert({
       org_id: org.id, email, role, created_by: user.id, token_hash: createHash('sha256').update(token).digest('hex'),
     })
-    if (error) return { error: error.message }
+    if (error) return { error: failed(error) }
     revalidatePath(`/o/${slug}/settings`)
     // Shown once: only the hash is stored.
     return { ok: `/invite/${token}` }
@@ -307,8 +320,9 @@ export async function removeMember(slug: string, userId: string) {
   return safe(async () => {
     const { supabase, org } = await requireRole(slug, 'admin')
     const { error, count } = await supabase.from('members').delete({ count: 'exact' }).eq('org_id', org.id).eq('user_id', userId)
-    if (error) return { error: error.message }
+    if (error) return { error: failed(error) }
     if (!count) return { error: 'The owner cannot be removed.' }
+    await supabase.from('invites').delete().eq('org_id', org.id).eq('created_by', userId).is('accepted_at', null)
     revalidatePath(`/o/${slug}/settings`)
   })
 }

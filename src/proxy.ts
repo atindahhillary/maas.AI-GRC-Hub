@@ -27,6 +27,7 @@ export async function proxy(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
+      cookieOptions: { secure: !dev },
       cookies: {
         getAll: () => request.cookies.getAll(),
         setAll: (list) => {
@@ -44,7 +45,9 @@ export async function proxy(request: NextRequest) {
     const to = request.nextUrl.clone()
     to.pathname = '/signin'
     to.search = `?next=${encodeURIComponent(path)}`
-    return withCsp(NextResponse.redirect(to))
+    const redirect = NextResponse.redirect(to)
+    response.cookies.getAll().forEach((c) => redirect.cookies.set(c))
+    return withCsp(redirect)
   }
   return withCsp(response)
 }

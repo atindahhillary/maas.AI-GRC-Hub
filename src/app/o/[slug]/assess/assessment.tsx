@@ -68,7 +68,7 @@ function Row({ slug, orgId, item, canWrite }: { slug: string; orgId: string; ite
           <div className="space-y-3">
             <div><div className="eyebrow">Why it matters</div><p className="mt-1 text-soft">{c.why}</p></div>
             <div><div className="eyebrow">How to fix it</div><p className="mt-1 text-soft">{c.howToFix}</p></div>
-            {refs.length > 0 && <div><div className="eyebrow">Maps to</div><p className="mt-1 text-xs text-faint">{refs.join(', ')}</p></div>}
+            {refs.length > 0 && <div><div className="eyebrow">Maps to</div><p className="mt-1 text-xs text-faint">{refs.join(', ')}</p>{c.frameworks.euAiAct && <p className="mt-1 text-xs text-faint">Many EU AI Act articles apply only to high-risk systems, on phased dates. Check whether yours is in scope.</p>}</div>}
           </div>
           <div className="space-y-3">
             <div>

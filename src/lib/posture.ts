@@ -70,13 +70,15 @@ export function posture(states: ControlState[]): Posture {
   const domains = [...new Set(inScope.map((s) => s.control.domain))]
   return {
     claimed: pct(inScope, credit),
-    proven: pct(inScope, (s) => (isProven(s) ? credit(s) : 0)),
+    // Over all states: marking a control N/A must not lift the proven score.
+    proven: pct(states, (s) => (isProven(s) ? credit(s) : 0)),
     answered: states.filter((s) => s.answer).length,
     total: states.length,
     provenCount: inScope.filter((s) => isProven(s) && credit(s) > 0).length,
     byDomain: domains.map((domain) => {
       const list = inScope.filter((s) => s.control.domain === domain)
-      return { domain, label: DOMAIN_LABEL[domain], claimed: pct(list, credit), proven: pct(list, (s) => (isProven(s) ? credit(s) : 0)), total: list.length }
+      const all = states.filter((s) => s.control.domain === domain)
+      return { domain, label: DOMAIN_LABEL[domain], claimed: pct(list, credit), proven: pct(all, (s) => (isProven(s) ? credit(s) : 0)), total: list.length }
     }),
   }
 }

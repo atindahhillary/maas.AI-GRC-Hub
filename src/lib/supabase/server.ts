@@ -9,6 +9,7 @@ const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
 export async function supabaseServer() {
   const store = await cookies()
   return createServerClient(url, key, {
+    cookieOptions: { secure: process.env.NODE_ENV === 'production' },
     cookies: {
       getAll: () => store.getAll(),
       setAll: (list) => {

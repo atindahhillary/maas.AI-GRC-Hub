@@ -16,7 +16,8 @@ export default async function Policy({ params }: { params: Promise<{ slug: strin
   const { data: p } = await supabase.from('policies').select('*').eq('id', id).eq('org_id', org.id).maybeSingle()
   if (!p) notFound()
   const doc = p.body as PolicyDoc
-  const markdown = policyToMarkdown(doc, { org: org.name, version: p.version, status: p.status, approvedBy: p.approved_by_email, approvedAt: p.approved_at })
+  const approved = p.status === 'approved'
+  const markdown = policyToMarkdown(doc, { org: org.name, version: p.version, status: p.status, approvedBy: approved ? p.approved_by_email : null, approvedAt: p.approved_at })
   return (
     <div className="mx-auto max-w-4xl">
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2">

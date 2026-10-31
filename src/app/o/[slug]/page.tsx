@@ -15,7 +15,10 @@ const EVENT: Record<string, [string, LucideIcon]> = {
   'evidence.insert': ['Evidence hashed', FileCheck2], 'scans.insert': ['Live test run', Radar],
   'policies.insert': ['Policy drafted', FileCheck2], 'policies.update': ['Policy approved', FileCheck2],
   'attestations.insert': ['Attestation signed', Fingerprint], 'attestations.update': ['Trust page changed', Fingerprint],
-  'domains.insert': ['Domain added', Radar], 'domains.update': ['Domain verified', Radar], 'members.insert': ['Member joined', CheckCircle2],
+  'domains.insert': ['Domain added', Radar], 'domains.update': ['Domain verified', Radar], 'domains.delete': ['Domain removed', Radar],
+  'members.insert': ['Member joined', CheckCircle2], 'members.update': ['Role changed', CheckCircle2], 'members.delete': ['Member removed', CheckCircle2],
+  'invites.insert': ['Invite sent', CheckCircle2], 'invites.update': ['Invite accepted', CheckCircle2], 'invites.delete': ['Invite cancelled', CheckCircle2],
+  'orgs.update': ['Profile updated', CheckCircle2],
 }
 
 export const metadata = { title: 'Overview' }
@@ -155,7 +158,7 @@ export default async function Overview({ params }: { params: Promise<{ slug: str
                     <span className="mx-auto grid size-8 place-items-center rounded-full bg-brand-soft text-brand"><Icon className="size-4" aria-hidden /></span>
                     <div className="mt-2 text-faint">{new Date(e.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
                     <div className="truncate font-medium">{label}</div>
-                    <div className="truncate text-faint">{e.subject.length > 20 ? 'Entry' : e.subject}</div>
+                    {e.subject.length <= 20 && <div className="truncate text-faint">{e.subject}</div>}
                   </li>
                 )
               })}

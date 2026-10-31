@@ -7,8 +7,8 @@ import tls from 'node:tls'
 // SSRF defence: the scanner only ever connects to public addresses. The check runs inside
 // the socket's own DNS lookup, so a DNS change after verification (rebinding) cannot slip past.
 const BLOCKED = new BlockList()
-for (const [net, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 3]] as const) BLOCKED.addSubnet(net, bits, 'ipv4')
-for (const [net, bits] of [['::', 96], ['64:ff9b::', 96], ['100::', 64], ['2001::', 32], ['2001:db8::', 32], ['2002::', 16], ['fc00::', 7], ['fe80::', 10], ['fec0::', 10], ['ff00::', 8]] as const) BLOCKED.addSubnet(net, bits, 'ipv6')
+for (const [net, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['192.88.99.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 3]] as const) BLOCKED.addSubnet(net, bits, 'ipv4')
+for (const [net, bits] of [['::', 96], ['::ffff:0:0:0', 96], ['64:ff9b::', 96], ['64:ff9b:1::', 48], ['100::', 64], ['2001::', 23], ['2001:db8::', 32], ['3fff::', 20], ['5f00::', 16], ['2002::', 16], ['fc00::', 7], ['fe80::', 10], ['fec0::', 10], ['ff00::', 8]] as const) BLOCKED.addSubnet(net, bits, 'ipv6')
 
 export function isPublicIp(ip: string): boolean {
   const version = isIP(ip)
@@ -40,7 +40,7 @@ export function get(url: string, timeoutMs = 8000): Promise<Fetched> {
   return new Promise((resolve, reject) => {
     const req = lib.request(
       u,
-      { method: 'GET', lookup: safeLookup as never, timeout: timeoutMs, headers: { 'user-agent': 'maasAI-GRC-Scanner/1.0 (owner-verified scan)', accept: '*/*' } },
+      { method: 'GET', lookup: safeLookup as never, timeout: timeoutMs, signal: AbortSignal.timeout(timeoutMs), headers: { 'user-agent': 'maasAI-GRC-Scanner/1.0 (owner-verified scan)', accept: '*/*' } },
       (res) => {
         const chunks: Buffer[] = []
         let size = 0
@@ -66,7 +66,9 @@ export function tlsInfo(host: string, timeoutMs = 8000): Promise<TlsInfo> {
   return new Promise((resolve) => {
     // Verification off on purpose: this probe sends no data and must connect to a bad cert to report it.
     const socket = tls.connect({ host, port: 443, servername: host, lookup: safeLookup as never, timeout: timeoutMs, rejectUnauthorized: false })
-    const finish = (info: TlsInfo) => { socket.destroy(); resolve(info) }
+    const finish = (info: TlsInfo) => { clearTimeout(deadline); socket.destroy(); resolve(info) }
+    // The socket timeout is idle only, a slow server could otherwise hold the function open.
+    const deadline = setTimeout(() => finish({ protocol: null, validTo: null, authorized: false, error: 'timeout' }), timeoutMs)
     socket.once('secureConnect', () => {
       const cert = socket.getPeerCertificate()
       finish({ protocol: socket.getProtocol(), validTo: cert?.valid_to ?? null, authorized: socket.authorized, error: socket.authorizationError ? String(socket.authorizationError) : undefined })

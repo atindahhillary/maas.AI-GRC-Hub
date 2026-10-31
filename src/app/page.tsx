@@ -7,13 +7,13 @@ const STEPS = [
   ['Test', 'Prove you own your domain, then run live checks on email spoofing, encryption, web hardening and exposed secrets. Answer a plain-English assessment tailored to your sector, size and tools.'],
   ['Score', 'Every gap becomes a risk scored the way a senior analyst would: likelihood times impact, inherent to residual, with an owner and a deadline. Your dashboard shows what you claim and what you can prove.'],
   ['Fix', 'Get prioritized recommendations, paste-ready guardrails, a custom security system for your budget, and SMART security and AI policies written for your organization.'],
-  ['Prove', 'Evidence is hashed, every change lands in a tamper-evident ledger, and results are signed into an attestation that anyone can verify without trusting us.'],
+  ['Prove', 'Evidence is hashed, every change lands in a tamper-evident ledger, and results are signed into an attestation anyone can check against our public key.'],
 ]
 
 const PROOF: [LucideIcon, string, string][] = [
   [ScanSearch, 'Machine tested', 'Results come from our scanner on a domain you proved you own, and your team cannot edit them.'],
-  [Link2, 'Tamper-evident', 'Each change is chained by hash to the one before, so a later edit breaks the chain and shows.'],
-  [FileSignature, 'Independently signed', 'Attestations carry an Ed25519 signature. Our public key is all anyone needs to check one.'],
+  [Link2, 'Tamper-evident', 'Each change is chained by hash to the one before, so a later edit by anyone without full database rights breaks the chain.'],
+  [FileSignature, 'Signed by maas.AI', 'Attestations carry an Ed25519 signature tied to a domain you proved you own. Our public key is all anyone needs to check one.'],
 ]
 
 const FRAMEWORKS = ['ISO/IEC 27001', 'NIST CSF 2.0', 'CIS Controls', 'Kenya DPA 2019', 'GDPR', 'NIST AI RMF', 'ISO/IEC 42001', 'EU AI Act']
@@ -58,7 +58,7 @@ export default function Home() {
             <div className="flex items-center gap-3"><ScoreChip score={16} /><span className="min-w-0 flex-1 truncate">No DMARC, domain can be spoofed</span><ArrowRight className="size-3.5 text-faint" /><ScoreChip score={4} /></div>
           </div>
           <div className="mt-4 flex items-center gap-2 rounded-lg bg-low-soft px-3 py-2 text-xs font-medium text-low">
-            <BadgeCheck className="size-4 shrink-0" /> Signed attestation, Ed25519, verifiable by anyone
+            <BadgeCheck className="size-4 shrink-0" /> Signed attestation, tied to your verified domain
           </div>
         </div>
       </section>

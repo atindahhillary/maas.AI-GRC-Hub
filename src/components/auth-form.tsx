@@ -7,7 +7,14 @@ import { supabaseBrowser } from '@/lib/supabase/browser'
 import { Logo } from './ui'
 
 // Only same-site paths, so a crafted link cannot bounce a user off to another site.
-export const safeNext = (next?: string) => (next && /^\/(?![/\\])/.test(next) ? next : '/app')
+export function safeNext(next?: string) {
+  const base = 'https://app.invalid'
+  try {
+    return next?.startsWith('/') && new URL(next, base).origin === base ? next : '/app'
+  } catch {
+    return '/app'
+  }
+}
 
 export function AuthForm({ mode, next, notice }: { mode: 'signin' | 'signup'; next?: string; notice?: string }) {
   const [error, setError] = useState('')

@@ -16,8 +16,7 @@ create table public.orgs (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique check (slug ~ '^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$'),
   name text not null check (char_length(name) between 2 and 120),
-  profile jsonb not null,
-  trust_enabled boolean not null default false,
+  profile jsonb not null check (jsonb_typeof(profile) = 'object' and pg_column_size(profile) < 8192),
   risk_counter integer not null default 0,
   created_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now()
@@ -118,7 +117,7 @@ create table public.domains (
 create table public.scans (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.orgs (id) on delete cascade,
-  domain_id uuid not null references public.domains (id) on delete cascade,
+  domain_id uuid references public.domains (id) on delete set null,
   domain text not null,
   score smallint not null check (score between 0 and 100),
   results jsonb not null,
@@ -126,6 +125,15 @@ create table public.scans (
   created_at timestamptz not null default now()
 );
 create index scans_org_time_idx on public.scans (org_id, created_at desc);
+
+create table public.scan_attempts (
+  id bigint generated always as identity primary key,
+  org_id uuid not null references public.orgs (id) on delete cascade,
+  domain text not null,
+  started_by uuid,
+  at timestamptz not null default now()
+);
+create index scan_attempts_domain_idx on public.scan_attempts (domain, at desc);
 
 create table public.policies (
   id uuid primary key default gen_random_uuid(),
@@ -136,6 +144,7 @@ create table public.policies (
   status public.policy_status not null default 'draft',
   body jsonb not null,
   content_sha256 text,
+  created_by uuid references auth.users (id) on delete set null,
   approved_by uuid references auth.users (id) on delete set null,
   approved_by_email text,
   approved_at timestamptz,
@@ -153,6 +162,7 @@ create table public.attestations (
   signature text not null,
   key_id text not null,
   published boolean not null default false,
+  issued_by uuid references auth.users (id) on delete set null,
   issued_at timestamptz not null default now(),
   expires_at timestamptz not null
 );
@@ -200,7 +210,7 @@ grant execute on function private.role_in(uuid), private.is_member(uuid), privat
 
 -- Tamper-evident ledger --------------------------------------------------------------------
 
-create function private.ledger_append(p_org uuid, p_event text, p_subject text, p_payload jsonb) returns void
+create function private.ledger_append(p_org uuid, p_event text, p_subject text, p_actor uuid, p_payload jsonb) returns void
 language plpgsql security definer set search_path = '' as $$
 declare
   v_prev public.ledger%rowtype;
@@ -214,19 +224,19 @@ begin
   v_seq := coalesce(v_prev.seq, 0) + 1;
   v_prev_hash := coalesce(v_prev.hash, repeat('0', 64));
   insert into public.ledger (org_id, seq, event, subject, actor, payload_hash, prev_hash, hash, created_at)
-  values (p_org, v_seq, p_event, p_subject, auth.uid(), v_payload_hash, v_prev_hash,
-          private.ledger_hash(p_org, v_seq, p_event, p_subject, auth.uid(), v_payload_hash, v_prev_hash, v_now), v_now);
+  values (p_org, v_seq, p_event, p_subject, p_actor, v_payload_hash, v_prev_hash,
+          private.ledger_hash(p_org, v_seq, p_event, p_subject, p_actor, v_payload_hash, v_prev_hash, v_now), v_now);
 end $$;
 
 create function private.ledger_hash(p_org uuid, p_seq bigint, p_event text, p_subject text, p_actor uuid,
                                     p_payload_hash text, p_prev_hash text, p_at timestamptz) returns text
 language sql immutable set search_path = '' as $$
-  select encode(extensions.digest(concat_ws('|', p_org, p_seq, p_event, p_subject, coalesce(p_actor::text, '-'),
-    p_payload_hash, p_prev_hash, extract(epoch from p_at)::numeric(20, 6)), 'sha256'), 'hex')
+  select encode(extensions.digest(jsonb_build_array(p_org, p_seq, p_event, p_subject, p_actor,
+    p_payload_hash, p_prev_hash, extract(epoch from p_at)::numeric(20, 6))::text, 'sha256'), 'hex')
 $$;
 
 create function private.ledger_forbid_change() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = '' as $$
 begin
   -- Cascade from deleting a whole org is the only way a row may go.
   if tg_op = 'DELETE' and not exists (select 1 from public.orgs where id = old.org_id) then return old; end if;
@@ -235,29 +245,45 @@ end $$;
 create trigger ledger_no_update before update or delete on public.ledger
   for each row execute function private.ledger_forbid_change();
 
+create function private.ledger_no_truncate() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  raise exception 'ledger is append-only';
+end $$;
+create trigger ledger_no_truncate before truncate on public.ledger
+  for each statement execute function private.ledger_no_truncate();
+
 create function private.ledger_row() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare
   v_row jsonb;
+  v_org uuid;
   v_subject text;
 begin
   if tg_op = 'DELETE' then v_row := to_jsonb(old); else v_row := to_jsonb(new); end if;
+  v_org := coalesce(v_row ->> 'org_id', v_row ->> 'id')::uuid;
   -- Deleting a whole org cascades here after the org row has gone.
-  if not exists (select 1 from public.orgs where id = (v_row ->> 'org_id')::uuid) then return null; end if;
+  if not exists (select 1 from public.orgs where id = v_org) then return null; end if;
   v_subject := coalesce(v_row ->> 'control_id', v_row ->> 'domain', v_row ->> 'template_id', v_row ->> 'id', v_row ->> 'user_id', '');
   if tg_table_name = 'risks' then v_subject := 'RISK-' || lpad(v_row ->> 'seq', 3, '0'); end if;
-  perform private.ledger_append((v_row ->> 'org_id')::uuid, tg_table_name || '.' || lower(tg_op), v_subject, v_row);
+  perform private.ledger_append(v_org, tg_table_name || '.' || lower(tg_op), v_subject,
+    coalesce(auth.uid(), (v_row ->> 'started_by')::uuid, (v_row ->> 'uploaded_by')::uuid, (v_row ->> 'approved_by')::uuid,
+      (v_row ->> 'created_by')::uuid, (v_row ->> 'issued_by')::uuid), v_row);
   return null;
 end $$;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['risks', 'answers', 'evidence', 'domains', 'scans', 'policies', 'attestations', 'members'] loop
+  foreach t in array array['risks', 'answers', 'evidence', 'domains', 'scans', 'policies', 'attestations', 'members', 'invites'] loop
     execute format('create trigger ledger_%1$s after insert or update or delete on public.%1$I
       for each row execute function private.ledger_row()', t);
   end loop;
 end $$;
+
+-- Only identity changes: risk_counter moves on every new risk.
+create trigger ledger_orgs after update of name, profile on public.orgs
+  for each row execute function private.ledger_row();
 
 -- Recomputes the whole chain, so a row edited outside the app shows up here.
 create function public.verify_ledger(p_org uuid) returns table (ok boolean, entries bigint, head text, broken_at bigint)
@@ -279,7 +305,8 @@ begin
     v_prev := r.hash;
   end loop;
   -- A chain cut short still adds up, so it must also contain the last signed head.
-  select a.payload -> 'ledger' into v_anchor from public.attestations a where a.org_id = p_org order by a.issued_at desc limit 1;
+  select a.canonical::jsonb -> 'ledger' into v_anchor from public.attestations a
+  where a.org_id = p_org and a.canonical::jsonb ? 'ledger' order by a.issued_at desc limit 1;
   if v_anchor is not null and not exists (
     select 1 from public.ledger l where l.org_id = p_org and l.seq = (v_anchor ->> 'entries')::bigint and l.hash = v_anchor ->> 'head'
   ) then
@@ -300,9 +327,14 @@ begin
 end $$;
 create trigger risks_seq before insert on public.risks for each row execute function private.risk_before_insert();
 
-create function private.touch() returns trigger language plpgsql as $$
+create function private.touch() returns trigger language plpgsql set search_path = '' as $$
 begin new.updated_at := now(); return new; end $$;
 create trigger risks_touch before update on public.risks for each row execute function private.touch();
+
+-- Who answered is a fact the database records, not something a client states.
+create function private.answer_stamp() returns trigger language plpgsql set search_path = '' as $$
+begin new.answered_by := auth.uid(); new.updated_at := now(); return new; end $$;
+create trigger answers_stamp before insert or update on public.answers for each row execute function private.answer_stamp();
 
 -- Tenant onboarding and invites --------------------------------------------------------------
 
@@ -350,8 +382,45 @@ end $$;
 
 revoke all on function public.create_org(text, jsonb), public.accept_invite(text), public.verify_ledger(uuid) from public, anon;
 grant execute on function public.create_org(text, jsonb), public.accept_invite(text), public.verify_ledger(uuid) to authenticated;
-revoke all on function private.ledger_append(uuid, text, text, jsonb), private.ledger_hash(uuid, bigint, text, text, uuid, text, text, timestamptz),
-  private.ledger_forbid_change(), private.ledger_row(), private.risk_before_insert(), private.touch() from public;
+revoke all on function private.ledger_append(uuid, text, text, uuid, jsonb), private.ledger_hash(uuid, bigint, text, text, uuid, text, text, timestamptz),
+  private.ledger_forbid_change(), private.ledger_no_truncate(), private.ledger_row(), private.risk_before_insert(), private.touch(), private.answer_stamp() from public;
+
+-- Finding 16: a trust page is reachable by its slug, the list of tenants is not.
+create function public.trust_page(p_slug text) returns table (canonical text, signature text, key_id text)
+language sql stable security definer set search_path = '' as $$
+  select a.canonical, a.signature, a.key_id from public.attestations a
+  where a.slug = p_slug and a.published order by a.issued_at desc limit 1
+$$;
+
+-- Unpublishing withdraws an attestation: its signature stops counting as live.
+create function public.attestation_live(p_signature text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.attestations a where a.signature = p_signature and a.published)
+$$;
+
+create function public.claim_scan(p_org uuid, p_domain text, p_user uuid) returns boolean
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended('scan' || p_domain, 0));
+  if (select count(*) from public.scan_attempts where domain = p_domain and at > now() - interval '10 minutes') >= 3 then return false; end if;
+  if (select count(*) from public.scan_attempts where org_id = p_org and at > now() - interval '1 hour') >= 20 then return false; end if;
+  insert into public.scan_attempts (org_id, domain, started_by) values (p_org, p_domain, p_user);
+  return true;
+end $$;
+
+-- Named roles too: Supabase's default privileges grant new public functions to them directly.
+revoke all on function public.trust_page(text), public.attestation_live(text), public.claim_scan(uuid, text, uuid) from public, anon, authenticated;
+grant execute on function public.trust_page(text), public.attestation_live(text) to anon, authenticated;
+grant execute on function public.claim_scan(uuid, text, uuid) to service_role;
+
+-- Only exact UUIDs, so a stray object name cannot break the policy with a cast error.
+create function private.path_org(p_name text) returns uuid
+language sql immutable set search_path = '' as $$
+  select case when (storage.foldername(p_name))[1] ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    then ((storage.foldername(p_name))[1])::uuid end
+$$;
+revoke all on function private.path_org(text) from public;
+grant execute on function private.path_org(text) to authenticated;
 
 -- Row level security ---------------------------------------------------------------------------
 
@@ -366,6 +435,7 @@ alter table public.scans enable row level security;
 alter table public.policies enable row level security;
 alter table public.attestations enable row level security;
 alter table public.ledger enable row level security;
+alter table public.scan_attempts enable row level security;
 
 create policy orgs_read on public.orgs for select to authenticated using (private.is_member(id));
 create policy orgs_update on public.orgs for update to authenticated using (private.is_admin(id)) with check (private.is_admin(id));
@@ -395,11 +465,8 @@ create policy domains_delete on public.domains for delete to authenticated using
 create policy scans_read on public.scans for select to authenticated using (private.is_member(org_id));
 
 create policy policies_read on public.policies for select to authenticated using (private.is_member(org_id));
-create policy policies_insert on public.policies for insert to authenticated
-  with check (private.can_write(org_id) and status = 'draft' and approved_at is null);
 
 create policy attestations_read on public.attestations for select to authenticated using (private.is_member(org_id));
-create policy attestations_public on public.attestations for select to anon, authenticated using (published);
 
 create policy ledger_read on public.ledger for select to authenticated using (private.is_member(org_id));
 
@@ -411,18 +478,23 @@ create policy attestations_publish on public.attestations for update to authenti
 -- TRUNCATE, which would skip RLS and the ledger, and limits updates to the columns meant to change.
 
 revoke all on all tables in schema public from anon, authenticated;
-grant all on all tables in schema public to service_role;
+grant select, insert, update, delete on all tables in schema public to service_role;
+revoke delete on public.ledger from service_role;
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on functions from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
 
 grant select on public.orgs, public.members, public.evidence, public.scans, public.ledger, public.attestations, public.policies to authenticated;
-grant update (name, profile, trust_enabled) on public.orgs to authenticated;
+grant update (name, profile) on public.orgs to authenticated;
 grant update (role), delete on public.members to authenticated;
-grant select, insert, update, delete on public.invites, public.risks to authenticated;
+grant select (id, org_id, email, role, expires_at, accepted_at, created_by, created_at) on public.invites to authenticated;
+grant insert (org_id, email, role, token_hash, created_by), delete on public.invites to authenticated;
+grant select, insert, delete on public.risks to authenticated;
+grant update (description, consequence, category, likelihood, impact, existing_controls, strategy, mitigation, owner, target_date, status, residual_likelihood, residual_impact, last_reviewed) on public.risks to authenticated;
 grant select, insert, update on public.answers to authenticated;
 grant select, delete on public.domains to authenticated;
 grant insert (org_id, domain) on public.domains to authenticated;
-grant insert on public.policies to authenticated;
 grant update (published) on public.attestations to authenticated;
-grant select on public.attestations to anon;
 
 -- Evidence files ---------------------------------------------------------------------------
 
@@ -434,6 +506,6 @@ values ('evidence', 'evidence', false, 10485760, array[
 ]);
 
 create policy evidence_files_read on storage.objects for select to authenticated
-  using (bucket_id = 'evidence' and private.is_member(((storage.foldername(name))[1])::uuid));
+  using (bucket_id = 'evidence' and private.is_member(private.path_org(name)));
 create policy evidence_files_write on storage.objects for insert to authenticated
-  with check (bucket_id = 'evidence' and private.can_write(((storage.foldername(name))[1])::uuid));
+  with check (bucket_id = 'evidence' and private.can_write(private.path_org(name)));

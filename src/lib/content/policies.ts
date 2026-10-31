@@ -111,6 +111,24 @@ export const POLICIES: PolicyTemplate[] = [
             dueDays: 30,
             controls: ['NET-01', 'DAT-04'],
           },
+          {
+            statement: 'Changes to live systems and security settings are approved by a second person, recorded with a rollback plan, and checked against admin activity.',
+            metric: 'Changes in the sampled admin logs that have a matching approved record',
+            target: '100% of a monthly sample of 10 changes, with emergency changes recorded within 1 working day',
+            ownerRole: 'IT Lead',
+            relevance: 'Unrecorded changes cause outages and can weaken security without anyone noticing.',
+            dueDays: 45,
+            controls: ['GOV-07'],
+          },
+          {
+            statement: 'Office networks and work devices use a DNS service that blocks known malicious domains.',
+            metric: 'Percentage of offices and work devices using the filtering service',
+            target: '100% of offices and 95% of work devices',
+            ownerRole: 'IT Lead',
+            relevance: 'Blocking bad domains stops many phishing and malware connections before they start.',
+            dueDays: 30,
+            controls: ['NET-07'],
+          },
         ],
       },
       {
@@ -771,7 +789,7 @@ export const POLICIES: PolicyTemplate[] = [
         appliesIf: inKenya,
         clauses: [
           {
-            statement: 'Where the organization acts as a data controller, qualifying breaches are notified to the Data Commissioner under section 43.',
+            statement: 'Where the organization acts as a data controller, unauthorized access to or acquisition of personal data with a real risk of harm is notified to the Data Commissioner under section 43.',
             metric: 'Hours from awareness to notification',
             target: 'Within 72 hours of becoming aware',
             ownerRole: 'Data Protection Officer',
@@ -926,12 +944,12 @@ export const POLICIES: PolicyTemplate[] = [
             metric: 'Current certificate or written exemption reasoning on file',
             target: '1 current record, checked every 12 months',
             ownerRole: 'Managing Director',
-            relevance: 'Registration is a basic duty, and it is one of the first things the regulator checks.',
+            relevance: 'Registration is a basic duty, and the regulator can ask for proof of it.',
             dueDays: 30,
             controls: ['GOV-06'],
           },
           {
-            statement: 'The organization decides whether section 24 requires a data protection officer, then appoints one or records why it does not.',
+            statement: 'The organization assesses whether section 24 applies, such as for public bodies or core activities involving systematic monitoring or sensitive data, then appoints a data protection officer or records why it does not.',
             metric: 'Written decision and published contact',
             target: '1 named privacy contact for {org}',
             ownerRole: 'Managing Director',
@@ -956,7 +974,7 @@ export const POLICIES: PolicyTemplate[] = [
         appliesIf: p => p.dataTypes.includes('children'),
         clauses: [
           {
-            statement: 'Consent from a parent or guardian is obtained before processing a child\'s data where consent is the lawful basis, and any age check is proportionate.',
+            statement: 'Consent from a parent or guardian is obtained before processing a child\'s data unless the law allows otherwise, and any age check is proportionate.',
             metric: 'Sampled child records with valid consent on file',
             target: '100% of a quarterly sample of 20 records',
             ownerRole: 'Data Protection Officer',

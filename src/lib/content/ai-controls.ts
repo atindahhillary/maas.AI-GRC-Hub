@@ -114,7 +114,7 @@ export const AI_CONTROLS: Control[] = [
     effort: 'days',
     frameworks: {
       nistAiRmf: ['GOVERN 3.2', 'MAP 3.5'],
-      iso42001: ['A.9.3'],
+      iso42001: ['A.9.2', 'A.9.3'],
       euAiAct: ['Art. 14', 'Art. 26'],
       kenyaDpa: ['s.35'],
       gdpr: ['Art. 22'],

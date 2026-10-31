@@ -20,13 +20,13 @@ The principle: **reassurance is a sentence, proof is something a stranger can ch
 
 ## Claimed vs proven
 
-Every control has an assurance level: machine tested, evidenced, claimed, or none. The dashboard shows both scores, so nobody confuses what they say with what they can show. Only a passing live test or evidence less than a year old counts as proven.
+Every control has an assurance level: machine tested, evidenced, claimed, or none. The dashboard shows both scores, so nobody confuses what they say with what they can show. Only a passing live test or evidence less than a year old counts as proven, and marking a control N/A does not raise the proven score. Evidence files are hashed, not reviewed by maas.AI, so public pages call this "backed by evidence or a test".
 
 ## Honest limits
 
 - An attestation proves what was tested and declared on a date. It does not guarantee a breach cannot happen, and it does not replace a penetration test or a certification audit.
 - Live tests see only what is public from the outside. The hub does not detect intrusions or monitor networks.
-- The ledger shows tampering once its head has been pinned by a signed attestation. Between attestations, someone with full database admin rights could rewrite it.
+- The ledger catches edits by anyone without full database rights. A database administrator could still rewrite it, unless someone compares it with a signed bundle they kept. Publishing ledger heads to an outside log would close this gap and is not built yet.
 - Generated policies are drafts for human review, not legal advice. Policies and guardrails are produced by a rules engine, so no customer security data goes to an AI provider.
 - Framework mappings are a reference, not a certification claim.
 
@@ -58,6 +58,12 @@ Open http://localhost:3100.
 
 ```bash
 npm test
+```
+
+The full browser journey runs real Postgres row-level security through a local Supabase emulator, with no Docker needed:
+
+```bash
+node tests/e2e/journey.cjs
 ```
 
 ## Security model

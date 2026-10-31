@@ -2,7 +2,8 @@ import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'nod
 
 export interface AttestationPayload {
   version: 1
-  org: string
+  orgId: string
+  org: string // the name the organization gave itself, the verified domain is the identity
   slug: string
   issuedAt: string
   expiresAt: string
