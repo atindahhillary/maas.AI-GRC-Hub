@@ -23,7 +23,7 @@ if (!service) throw new Error('No service_role key found on this Supabase projec
 const signing = generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64')
 
 for (const [name, input] of [['SUPABASE_SERVICE_ROLE_KEY', service], ['ATTESTATION_PRIVATE_KEY', signing]]) {
-  run(['vercel', 'env', 'add', name, 'production', '--sensitive', '--force', '--yes', '--scope', SCOPE], { input })
+  run(['vercel', 'env', 'add', name, '--environment', 'production', '--sensitive', '--force', '--yes', '--scope', SCOPE], { input })
   console.log(`Saved ${name}`)
 }
 console.log('Done. Tell Claude to redeploy.')
