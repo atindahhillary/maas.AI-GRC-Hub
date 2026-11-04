@@ -22,7 +22,7 @@ export default function Home() {
   return (
     <div className="overflow-x-clip">
       <nav aria-label="Primary" className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-5">
-        <Logo />
+        <span className="flex items-center gap-2"><Logo /><span className="rounded-full border border-brand/50 px-2 py-0.5 text-xs font-semibold text-brand">Beta</span></span>
         <div className="flex items-center gap-2">
           <Link href="/signin" className="btn btn-ghost">Sign in</Link>
           <Link href="/signup" className="btn btn-primary">Create account</Link>
@@ -115,6 +115,7 @@ export default function Home() {
       <footer className="mx-auto flex max-w-6xl flex-wrap justify-between gap-3 px-5 py-8 text-sm text-faint">
         <span>maas.AI GRC Hub</span>
         <span>Generated documents are drafts for human review, not legal advice.</span>
+        <span className="flex gap-4"><a href="/privacy" className="hover:text-ink">Privacy</a><a href="mailto:atindahhillary@gmail.com?subject=maas.AI%20GRC%20Hub%20beta%20feedback" className="hover:text-ink">Send feedback</a></span>
       </footer>
     </div>
   )

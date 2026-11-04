@@ -87,6 +87,7 @@ export function AuthForm({ mode, next, notice }: { mode: 'signin' | 'signup'; ne
               </div>
               {error && <p role="alert" className="text-sm text-high">{error}</p>}
               <button disabled={busy} className="btn btn-primary w-full py-2.5">{busy ? 'One moment' : signup ? 'Create account' : 'Sign in'}</button>
+              {signup && <p className="text-center text-xs text-faint">By creating an account you accept our <Link href="/privacy" className="font-semibold text-brand">privacy notice</Link>. This is a beta, so please send us feedback.</p>}
               <p className="text-center text-sm text-soft">
                 {signup ? 'Already have an account?' : 'New here?'}{' '}
                 <Link href={`${signup ? '/signin' : '/signup'}${next ? `?next=${encodeURIComponent(next)}` : ''}`} className="font-semibold text-brand">{signup ? 'Sign in' : 'Create an account'}</Link>

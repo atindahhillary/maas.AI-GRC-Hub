@@ -19,6 +19,7 @@ export default async function OrgLayout({ params, children }: { params: Promise<
           <div className="truncate font-semibold">{user.email}</div>
           <div className="capitalize text-faint">{role}</div>
           <form action={signOut}><button className="mt-2 inline-flex items-center gap-1.5 text-soft hover:text-ink"><LogOut className="size-3.5" /> Sign out</button></form>
+          <a href="mailto:atindahhillary@gmail.com?subject=maas.AI%20GRC%20Hub%20beta%20feedback" className="mt-1 block text-soft hover:text-ink">Beta: send feedback</a>
         </div>
       </aside>
       <div className="min-w-0">
