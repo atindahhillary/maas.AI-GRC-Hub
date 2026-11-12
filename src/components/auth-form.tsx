@@ -2,7 +2,7 @@
 
 import { Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 import { Logo } from './ui'
 
@@ -18,19 +18,33 @@ export function safeNext(next?: string) {
 
 // Beta: no login. Each browser gets a Supabase anonymous user, so RLS and the ledger still hold.
 // Runs in the browser so Supabase rate-limits per visitor IP, not per Vercel server IP.
+// Bot check: with a Turnstile site key set, Supabase only accepts the sign-in with a fresh Turnstile token.
+const TURNSTILE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+type Turnstile = { render: (el: HTMLElement, o: { sitekey: string; callback: (t: string) => void; 'error-callback': () => void }) => void }
+
 export function GuestStart({ next }: { next?: string }) {
   const [error, setError] = useState('')
+  const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    supabaseBrowser().auth.signInAnonymously().then(({ error }) => {
-      if (error) setError('Guest access is not available right now. Please try again shortly.')
-      else location.replace(safeNext(next))
-    })
+    const fail = () => setError('Guest access is not available right now. Please try again shortly.')
+    const start = (captchaToken?: string) =>
+      supabaseBrowser().auth.signInAnonymously(captchaToken ? { options: { captchaToken } } : undefined).then(({ error }) => {
+        if (error) fail()
+        else location.replace(safeNext(next))
+      })
+    if (!TURNSTILE_KEY) { start(); return }
+    const script = document.createElement('script')
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+    script.onload = () => (window as unknown as { turnstile: Turnstile }).turnstile.render(box.current!, { sitekey: TURNSTILE_KEY, callback: start, 'error-callback': fail })
+    script.onerror = fail
+    document.head.append(script)
   }, [next])
   return (
     <main className="grid min-h-dvh place-items-center px-5">
       <div className="text-center">
         <Logo />
-        {error ? <p role="alert" className="mt-6 text-sm text-high">{error}</p> : <p className="mt-6 text-soft">Opening your guest workspace</p>}
+        {error ? <p role="alert" className="mt-6 text-sm text-high">{error}</p> : <p className="mt-6 text-soft">Checking you are human, then opening your guest workspace</p>}
+        <div ref={box} className="mt-4 flex justify-center" />
       </div>
     </main>
   )

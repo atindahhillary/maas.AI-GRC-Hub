@@ -14,6 +14,8 @@ export async function proxy(request: NextRequest) {
     `img-src 'self' data:`,
     `font-src 'self'`,
     `connect-src 'self' ${SUPABASE_ORIGIN}${dev ? ' ws:' : ''}`,
+    // Cloudflare Turnstile bot check runs in this iframe on /signin.
+    `frame-src https://challenges.cloudflare.com`,
     `object-src 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,
