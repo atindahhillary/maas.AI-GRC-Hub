@@ -22,11 +22,16 @@ function Row({ slug, orgId, item, canWrite }: { slug: string; orgId: string; ite
   const [error, setError] = useState('')
   const [pending, start] = useTransition()
 
-  const save = (next: string, text = note) => start(async () => {
+  // Highlight at once, outside the transition, which would hold it until the server round trip ends.
+  const save = (next: string, text = note) => {
+    const prev = status
     setStatus(next as Answer['status'])
-    const res = await answerControl(slug, c.id, next, text)
-    setError(res.error ?? '')
-  })
+    setError('')
+    start(async () => {
+      const res = await answerControl(slug, c.id, next, text)
+      if (res.error) { setStatus(prev); setError(res.error) }
+    })
+  }
 
   const upload = (file: File) => start(async () => {
     setError('')
