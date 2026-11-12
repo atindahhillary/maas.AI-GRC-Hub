@@ -228,7 +228,7 @@ export async function approvePolicy(slug: string, policyId: string) {
     const due = new Date()
     due.setMonth(due.getMonth() + months)
     const { error } = await service.from('policies').update({
-      status: 'approved', approved_by: user.id, approved_by_email: user.email, approved_at: new Date().toISOString(),
+      status: 'approved', approved_by: user.id, approved_by_email: user.email || 'a beta guest', approved_at: new Date().toISOString(),
       content_sha256: createHash('sha256').update(JSON.stringify(p.body)).digest('hex'), review_due: due.toISOString().slice(0, 10),
     }).eq('id', p.id)
     if (error) return { error: failed(error) }

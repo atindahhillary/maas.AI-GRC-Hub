@@ -1,8 +1,9 @@
-import { AuthForm } from '@/components/auth-form'
+import { GuestStart } from '@/components/auth-form'
 
-export const metadata = { title: 'Sign in' }
+export const metadata = { title: 'Open the hub' }
 
-export default async function SignIn({ searchParams }: { searchParams: Promise<{ next?: string; confirmed?: string }> }) {
-  const { next, confirmed } = await searchParams
-  return <AuthForm mode="signin" next={next} notice={confirmed ? 'Email confirmed. Sign in to continue.' : undefined} />
+// Beta: login removed. To bring it back, render <AuthForm mode="signin" /> here again.
+export default async function SignIn({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const { next } = await searchParams
+  return <GuestStart next={next} />
 }

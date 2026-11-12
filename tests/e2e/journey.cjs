@@ -17,7 +17,6 @@ const NEXT_BIN = path.join(ROOT, 'node_modules/next/dist/bin/next')
 const WAIT = 20000
 
 const ORG_NAME = 'Amani Relief Trust'
-const PASSWORD = 'correct-horse-battery-staple'
 const tag = Date.now().toString(36)
 const A = { email: `owner.${tag}@example.test` }
 const B = { email: `viewer.${tag}@example.test` }
@@ -137,25 +136,22 @@ const rest = async (route, { token = SERVICE, method = 'GET', body, prefer } = {
   return { status: res.status, json: text ? JSON.parse(text) : null }
 }
 
-async function tokenFor(user) {
-  const res = await fetch(`${SB}/auth/v1/token?grant_type=password`, {
-    method: 'POST', headers: { apikey: ANON, 'content-type': 'application/json' }, body: JSON.stringify({ email: user.email, password: PASSWORD }),
-  })
-  const json = await res.json()
-  assert(json.access_token, `sign in failed for ${user.email}: ${JSON.stringify(json)}`)
-  return json.access_token
-}
-
 const storageCall = (route, token, init = {}) => fetch(`${SB}/storage/v1/object/${route}`, { ...init, headers: { apikey: ANON, authorization: `Bearer ${token}`, ...init.headers } })
 
 // App actions -------------------------------------------------------------------------------------
 
-async function signUp(page, user) {
-  await goto(page, '/signup')
-  await page.fill('input[name=email]', user.email)
-  await page.fill('input[name=password]', PASSWORD)
-  await page.getByText('Create account', { exact: true }).click()
+// Beta has no login: opening the hub makes the browser an anonymous guest and lands on onboarding.
+async function signUp(page) {
+  await goto(page, '/app')
   await page.waitForURL(/\/onboarding/)
+}
+
+// A separate anonymous user, the same kind of token a guest browser holds.
+async function guestToken() {
+  const res = await fetch(`${SB}/auth/v1/signup`, { method: 'POST', headers: { apikey: ANON, 'content-type': 'application/json' }, body: '{}' })
+  const json = await res.json()
+  assert(json.access_token, `anonymous sign-in failed: ${JSON.stringify(json)}`)
+  return json.access_token
 }
 
 const postureLine = async (page) => {
@@ -208,7 +204,7 @@ async function journey(browser) {
   let evidencePath
   let overflow = []
 
-  await step('A signs up and lands on onboarding', () => signUp(a, A), { critical: true })
+  await step('A opens the hub as a guest and lands on onboarding', () => signUp(a), { critical: true })
 
   await step('A completes onboarding', async () => {
     const pick = (name, value) => a.locator(`label:has(input[name="${name}"][value="${value}"])`).click()
@@ -373,7 +369,7 @@ async function journey(browser) {
     await a.waitForURL(/\/policies\/[0-9a-f-]{36}$/)
     policyId = a.url().split('/').pop()
     await a.getByText('Approve', { exact: true }).click()
-    await seen(a, `Approved by ${A.email}`)
+    await seen(a, "Approved by a beta guest")
     const { json } = await rest(`policies?select=status,content_sha256&id=eq.${policyId}`)
     assert(json[0].status === 'approved' && json[0].content_sha256, JSON.stringify(json))
   })
@@ -437,9 +433,13 @@ async function journey(browser) {
     assert(bundle.includes('canonical'), bundle.slice(0, 80))
   })
 
-  await step('the workspace itself stays closed to a signed-out visitor', async () => {
+  await step('a new visitor becomes their own guest and still gets a 404 on the workspace', async () => {
+    allowConsole = /status of 404/
     await goto(stranger, `/o/${slug}`)
-    assert(new URL(stranger.url()).pathname === '/signin', stranger.url())
+    await stranger.waitForURL(new RegExp(`/o/${slug}$`))
+    const res = await goto(stranger, `/o/${slug}`)
+    allowConsole = null
+    assert(res.status() === 404, `got ${res.status()}`)
   })
 
   const verify = async (raw) => {
@@ -482,9 +482,9 @@ async function journey(browser) {
   })
 
   let bToken
-  await step('B signs up', async () => {
-    await signUp(b, B)
-    bToken = await tokenFor(B)
+  await step('B opens the hub as another guest', async () => {
+    await signUp(b)
+    bToken = await guestToken()
   }, { critical: true })
 
   await step('B gets a 404 on every page of A', async () => {
@@ -520,94 +520,10 @@ async function journey(browser) {
     return `download ${download.status}, sign ${sign.status}`
   })
 
-  let inviteLink
-  await step('A invites B as viewer', async () => {
-    await goto(a, `/o/${slug}/settings`)
-    await a.getByPlaceholder('colleague@example.org').fill(B.email)
-    await a.locator('select[name=role]').selectOption('viewer')
-    await a.getByText('Invite', { exact: true }).click()
-    await seen(a, 'Send this link')
-    inviteLink = await a.getByText(/\/invite\//).first().innerText()
-    assert(inviteLink.startsWith(`${APP}/invite/`), inviteLink)
-  })
-
-  await step('B accepts and joins as viewer', async () => {
-    await goto(b, inviteLink)
-    await b.getByText('Accept invite', { exact: true }).click()
-    await b.waitForURL(new RegExp(`/o/${slug}$`))
-    await seen(b, ORG_NAME)
-    const { json } = await rest(`members?select=role&org_id=eq.${orgId}&email=eq.${encodeURIComponent(B.email)}`)
-    assert(json[0]?.role === 'viewer', JSON.stringify(json))
-  })
-
-  await step('B sees a read-only UI', async () => {
-    const checks = []
-    await goto(b, `/o/${slug}/risks`)
-    await seen(b, 'Risk Register')
-    await absent(b, 'Add risk')
-    assert(await b.getByLabel(/^Delete RISK/).count() === 0, 'delete buttons shown')
-    checks.push('risks')
-    await goto(b, `/o/${slug}/assess`)
-    await seen(b, /^\d+ of \d+ answered$/)
-    const answerButtons = b.locator('button').filter({ hasText: /^(Yes|Partly|No|N\/A)$/ })
-    const all = await answerButtons.count()
-    assert(all > 0, 'no answer buttons found')
-    for (let i = 0; i < all; i++) assert(await answerButtons.nth(i).isDisabled(), `${await answerButtons.nth(i).innerText()} is enabled`)
-    await answerRows(b).first().locator('button[aria-expanded]').click()
-    await absent(b, 'Attach evidence')
-    checks.push('assess')
-    await goto(b, `/o/${slug}/policies`)
-    await absent(b, 'Generate')
-    await absent(b, 'New version')
-    await goto(b, `/o/${slug}/policies/${policyId}`)
-    await absent(b, 'Approve')
-    checks.push('policies')
-    await goto(b, `/o/${slug}/proof`)
-    await absent(b, 'Sign attestation')
-    await absent(b, 'Unpublish')
-    checks.push('proof')
-    await goto(b, `/o/${slug}/settings`)
-    assert(await b.locator('input[name=name]').isDisabled(), 'org name editable')
-    assert(await b.getByText('Save profile', { exact: true }).isDisabled(), 'save enabled')
-    assert(await b.getByPlaceholder('colleague@example.org').count() === 0, 'invite form shown')
-    checks.push('settings')
-    await goto(b, `/o/${slug}/recommendations`)
-    await absent(b, 'Add to register')
-    checks.push('recommendations')
-    await goto(b, `/o/${slug}/tests`)
-    await seen(b, 'Results for example.com')
-    await absent(b, 'Run live test')
-    checks.push('tests')
-    return checks.join(', ')
-  })
-
-  await step('B\'s write attempts fail in the database', async () => {
-    const before2 = (await rest(`orgs?select=name&id=eq.${orgId}`)).json[0].name
-    const risk = await rest('risks', { token: bToken, method: 'POST', body: { org_id: orgId, description: 'Viewer write', likelihood: 1, impact: 1 } })
-    assert(risk.status === 403 && risk.json.code === '42501', `risk: ${JSON.stringify(risk)}`)
-    const answer = await rest('answers', { token: bToken, method: 'POST', prefer: 'resolution=merge-duplicates', body: { org_id: orgId, control_id: 'GOV-01', status: 'yes' } })
-    assert(answer.status === 403 && answer.json.code === '42501', `answer: ${JSON.stringify(answer)}`)
-    await rest(`orgs?id=eq.${orgId}`, { token: bToken, method: 'PATCH', body: { name: 'Hijacked' } })
-    assert((await rest(`orgs?select=name&id=eq.${orgId}`)).json[0].name === before2, 'viewer renamed the org')
-    const upload = await storageCall(`evidence/${orgId}/GOV-01/viewer.pdf`, bToken, { method: 'POST', headers: { 'content-type': 'application/pdf' }, body: PDF })
-    assert(!upload.ok, `upload ${upload.status}`)
-    return `risk ${risk.status}, answer ${answer.status}, rename changed nothing, upload ${upload.status}`
-  })
-
   await step('A saves the organization profile', async () => {
     await goto(a, `/o/${slug}/settings`)
     await a.getByText('Save profile', { exact: true }).click()
     await seen(a, 'Profile saved')
-  })
-
-  await step('A removes B, and B is back to a 404', async () => {
-    await goto(a, `/o/${slug}/settings`)
-    await a.locator('li').filter({ hasText: B.email }).getByText('Remove', { exact: true }).click()
-    await a.locator('li').filter({ hasText: B.email }).waitFor({ state: 'detached' })
-    allowConsole = /status of 404/
-    const res = await goto(b, `/o/${slug}`)
-    allowConsole = null
-    assert(res.status() === 404, `got ${res.status()}`)
   })
 
   await step('ledger chain still verifies after the whole journey', async () => {
@@ -637,14 +553,6 @@ async function journey(browser) {
 
   await step('no horizontal overflow on any screenshot', async () => {
     assert(overflow.length === 0, overflow.join('; '))
-  })
-
-  await step('A signs out from the sidebar', async () => {
-    await goto(a, `/o/${slug}`)
-    await a.getByText('Sign out', { exact: true }).click()
-    await a.waitForURL(`${APP}/`)
-    await goto(a, `/o/${slug}`)
-    assert(new URL(a.url()).pathname === '/signin', a.url())
   })
 
   // The build lists these as static, and a prerendered page cannot carry the per-request CSP nonce.

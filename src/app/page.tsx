@@ -24,8 +24,7 @@ export default function Home() {
       <nav aria-label="Primary" className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-5">
         <span className="flex items-center gap-2"><Logo /><span className="rounded-full border border-brand/50 px-2 py-0.5 text-xs font-semibold text-brand">Beta</span></span>
         <div className="flex items-center gap-2">
-          <Link href="/signin" className="btn btn-ghost">Sign in</Link>
-          <Link href="/signup" className="btn btn-primary">Create account</Link>
+          <Link href="/app" className="btn btn-primary">Open the hub</Link>
         </div>
       </nav>
 
@@ -39,7 +38,7 @@ export default function Home() {
             maas.AI GRC Hub gives every organization its own security workspace to run tests, see what to fix, and hand customers, boards and insurers signed proof.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/signup" className="btn btn-primary px-5 py-3 text-base">Start your assessment <ArrowRight className="size-4" /></Link>
+            <Link href="/app" className="btn btn-primary px-5 py-3 text-base">Start your assessment <ArrowRight className="size-4" /></Link>
             <Link href="/verify" className="btn btn-ghost px-5 py-3 text-base">Verify an attestation</Link>
           </div>
         </div>
@@ -105,7 +104,7 @@ export default function Home() {
           </div>
           <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
             <p className="text-2xl font-bold tracking-tight">Find out your real number in an afternoon.</p>
-            <Link href="/signup" className="btn btn-primary px-5 py-3 text-base">Create your workspace</Link>
+            <Link href="/app" className="btn btn-primary px-5 py-3 text-base">Create your workspace</Link>
           </div>
         </div>
       </section>

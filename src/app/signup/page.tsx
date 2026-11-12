@@ -1,8 +1,7 @@
-import { AuthForm } from '@/components/auth-form'
+import { redirect } from 'next/navigation'
 
-export const metadata = { title: 'Create account' }
-
+// Beta: login removed, old /signup links open a guest workspace. To restore, render <AuthForm mode="signup" />.
 export default async function SignUp({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   const { next } = await searchParams
-  return <AuthForm mode="signup" next={next} />
+  redirect(next ? `/signin?next=${encodeURIComponent(next)}` : '/signin')
 }

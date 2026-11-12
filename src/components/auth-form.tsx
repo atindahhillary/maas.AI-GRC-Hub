@@ -2,7 +2,7 @@
 
 import { Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 import { Logo } from './ui'
 
@@ -14,6 +14,26 @@ export function safeNext(next?: string) {
   } catch {
     return '/app'
   }
+}
+
+// Beta: no login. Each browser gets a Supabase anonymous user, so RLS and the ledger still hold.
+// Runs in the browser so Supabase rate-limits per visitor IP, not per Vercel server IP.
+export function GuestStart({ next }: { next?: string }) {
+  const [error, setError] = useState('')
+  useEffect(() => {
+    supabaseBrowser().auth.signInAnonymously().then(({ error }) => {
+      if (error) setError('Guest access is not available right now. Please try again shortly.')
+      else location.replace(safeNext(next))
+    })
+  }, [next])
+  return (
+    <main className="grid min-h-dvh place-items-center px-5">
+      <div className="text-center">
+        <Logo />
+        {error ? <p role="alert" className="mt-6 text-sm text-high">{error}</p> : <p className="mt-6 text-soft">Opening your guest workspace</p>}
+      </div>
+    </main>
+  )
 }
 
 export function AuthForm({ mode, next, notice }: { mode: 'signin' | 'signup'; next?: string; notice?: string }) {

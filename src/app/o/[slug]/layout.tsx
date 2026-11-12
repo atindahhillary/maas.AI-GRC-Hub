@@ -1,9 +1,7 @@
-import { LogOut } from 'lucide-react'
 import { Nav } from '@/components/nav'
 import { Logo } from '@/components/ui'
 import { loadState } from '@/lib/load'
 import { recommendations } from '@/lib/posture'
-import { signOut } from './actions'
 
 export default async function OrgLayout({ params, children }: { params: Promise<{ slug: string }>; children: React.ReactNode }) {
   const { slug } = await params
@@ -16,9 +14,8 @@ export default async function OrgLayout({ params, children }: { params: Promise<
         <div className="px-1 lg:py-1"><Logo /></div>
         <Nav slug={slug} badges={{ '/recommendations': open }} />
         <div className="mt-auto hidden rounded-lg border border-line bg-card p-3 text-xs lg:block">
-          <div className="truncate font-semibold">{user.email}</div>
+          <div className="truncate font-semibold">{user.email || 'Guest'}</div>
           <div className="capitalize text-faint">{role}</div>
-          <form action={signOut}><button className="mt-2 inline-flex items-center gap-1.5 text-soft hover:text-ink"><LogOut className="size-3.5" /> Sign out</button></form>
           <a href="mailto:atindahhillary@gmail.com?subject=maas.AI%20GRC%20Hub%20beta%20feedback" className="mt-1 block text-soft hover:text-ink">Beta: send feedback</a>
         </div>
       </aside>
@@ -28,7 +25,6 @@ export default async function OrgLayout({ params, children }: { params: Promise<
             <div className="truncate font-semibold">{org.name}</div>
             <div className="text-xs text-faint">{scan ? `Last live test ${new Date(scan.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} on ${scan.domain}` : 'No live test yet'}</div>
           </div>
-          <form action={signOut} className="lg:hidden"><button className="btn btn-ghost" aria-label="Sign out"><LogOut className="size-4" /></button></form>
         </header>
         <main id="main" tabIndex={-1} className="p-4 lg:p-5">{children}</main>
       </div>

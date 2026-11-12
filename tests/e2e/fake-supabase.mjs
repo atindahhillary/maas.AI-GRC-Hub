@@ -301,7 +301,7 @@ async function publicUser(user) {
   const { rows } = await asOwner(`select id, status::text as status from auth.mfa_factors where user_id = $1`, [user.id])
   const factors = rows.map((f) => ({ id: f.id, status: f.status, factor_type: 'totp', friendly_name: null, created_at: user.created_at, updated_at: user.created_at }))
   return {
-    id: user.id, aud: 'authenticated', role: 'authenticated', email: user.email,
+    id: user.id, aud: 'authenticated', role: 'authenticated', email: user.email ?? undefined, is_anonymous: !!user.anonymous,
     email_confirmed_at: user.created_at, confirmed_at: user.created_at, last_sign_in_at: new Date().toISOString(),
     app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {}, identities: [],
     created_at: user.created_at, updated_at: user.created_at, ...(factors.length ? { factors } : {}),
@@ -314,7 +314,7 @@ async function issueSession(user, sessionId = randomUUID()) {
   sessions.set(sessionId, user.id)
   refreshTokens.set(refresh_token, { sessionId, user })
   const access_token = signJwt({
-    iss: `${BASE}/auth/v1`, aud: 'authenticated', sub: user.id, email: user.email, role: 'authenticated', aal: 'aal1',
+    iss: `${BASE}/auth/v1`, aud: 'authenticated', sub: user.id, email: user.email ?? undefined, is_anonymous: !!user.anonymous, role: 'authenticated', aal: 'aal1',
     amr: [{ method: 'password', timestamp: now }], session_id: sessionId, iat: now, exp: now + TOKEN_TTL,
   })
   return { access_token, token_type: 'bearer', expires_in: TOKEN_TTL, expires_at: now + TOKEN_TTL, refresh_token, user: await publicUser(user) }
@@ -330,6 +330,13 @@ function currentUser(req) {
 }
 
 async function signup(body) {
+  // signInAnonymously() posts an empty body. Anonymous users have no email and are keyed by id.
+  if (!body.email && !body.password) {
+    const user = { id: randomUUID(), email: null, anonymous: true, created_at: new Date().toISOString() }
+    await asOwner(`insert into auth.users (id, email) values ($1, null)`, [user.id])
+    users.set(user.id, user)
+    return issueSession(user)
+  }
   const email = String(body.email ?? '').trim().toLowerCase()
   const password = String(body.password ?? '')
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw authError(400, 'validation_failed', 'Unable to validate email address: invalid format')
